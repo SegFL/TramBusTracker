@@ -1,0 +1,6 @@
+# Configuración de nivel de Log por defecto
+CONFIG_LOG_DEFAULT_LEVEL_VERBOSE=y
+CONFIG_LOG_DEFAULT_LEVEL=5
+
+# Opcional: Ajustes de Flash u otros periféricos
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
