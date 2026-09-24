@@ -13,13 +13,18 @@
 #include "driver/gpio.h"
 #include "src/digitalInputs/digitalInputs.h"
 #include "defines.h"
+#include "src/ledsDriver/ledsDriver.h"
+#include "src/digitalOutputs/digitalOutputs.h"
 
-
-#define UART_ANTENA UART_NUM_2
 #define MAX_UART_BUFFER_SIZE 64         //Cantidad de bytes que lee la UART antena cada vez
 
 void initUartAntena();
 void timer_callback(void *arg);
+
+
+
+
+
 
 typedef enum : uint8_t {
     MSG_TYPE_TAG_NUEVO = 0x01,
@@ -45,24 +50,26 @@ esp_timer_create_args_t timed_oneshot_timer_args = {
 
 
 void serialTask();
-void Task2_Receiver();
+void TAGTask();
 
 void TAGFileTask(void* pvParameters);
 void userTask(void* pvParameters);
 void digitalInputsTask(void* pvParameters);
+void digitalOutputsTask();
+
+
+//Funciones privadas 
+bool checksum();
+bool validarFormatoTrama(PaqueteMensaje_t* txPacket);
+bool configurarAntena();
+bool TAGInit();
 
 void app_main() {
 
 
-    if(userInterfaceInit()!=true){
-        write_register(USER_INTERFACE_STATE,1);
-        ESP_LOGE("MAIN", "Error al inicializar la interfaz de usuario.");
-    }
 
-    if(sd_card_init()!=ESP_OK){
-        write_register(SD_STATE,1);
-        ESP_LOGE("MAIN", "Error al inicializar la SD.");      
-    }
+
+    ESP_LOGI("FIRMWARE", "Firmware version: %s", FIRMWARE_VERSION);
 
     // 1. Crear la cola con espacio para 10 paquetes
     xQueueMsg = xQueueCreate(10, sizeof(PaqueteMensaje_t));
@@ -71,7 +78,7 @@ void app_main() {
         // 2. Crear las dos tareas
         //La tarea que lee la UART antena tiene mas prioridad que la que consume los TAGs recividos
         xTaskCreate(serialTask,   "Task_Send", 2048*4, NULL, 2, NULL);
-        xTaskCreate(Task2_Receiver, "Task_Recv", 2048*4, NULL, 1, NULL);
+        xTaskCreate(TAGTask, "Task_Recv", 2048*4, NULL, 1, NULL);
     } else {
         write_register(SERIAL_TASK_STATE,1);
         write_register(TAGS_TASK_STATE,1);
@@ -79,13 +86,24 @@ void app_main() {
     }
 
     xTaskCreate(TAGFileTask,"TAGFileTask",2*8192,NULL,1,NULL);
-
-    xTaskCreate(userTask,"userTask",2*2048,NULL,3,NULL);
     xTaskCreate(digitalInputsTask,"digitalTask",2*1024,NULL,1,NULL);
+    xTaskCreate(digitalOutputsTask,"DOTask",1024,NULL,1,NULL);
+    //Pongo un delay para evitar que se impriman mensajes del 
+    //menu antes de que se terminene de inicializar el resto de las tareas
+    vTaskDelay(pdMS_TO_TICKS(100));
+    xTaskCreate(userTask,"userTask",2*2048,NULL,3,NULL);
+
+
+
+    
+
+    digitalOutputsInit();
+
+
     while(1){
-        //write_register(LEDRUN_STATE,read_register(LEDRUN_STATE)^0x01);
-        
-        vTaskDelay(pdMS_TO_TICKS(100));
+
+        write_register(LEDRUN_STATE,read_register(LEDRUN_STATE)^0x01);
+        vTaskDelay(pdMS_TO_TICKS(300));
     }
 }
 
@@ -93,12 +111,61 @@ void app_main() {
 void TAGFileTask(void* pvParameters){
 
 
-    listarArchivosSD();
 
-    readTAGFile(TAG_FILE);
+    write_register(SD_STATE,1);
 
-    while(1){vTaskDelay(pdMS_TO_TICKS(1000));}
+    //Intento inicializar la SD, si falla se queda intentnado en un bucle infinito
+    while(1){
+        if(TAGInit()==true)
+            break;
+        if (read_register(FLAG_DEBUG_0) != 0)ESP_LOGE("MAIN", "Error al inicializar la SD.");      
+        vTaskDelay(pdMS_TO_TICKS(3000));
+        
+    }
 
+
+    
+
+
+
+    while(1){
+        //Si la SD o el archivo de TAGS no funcionan, intento inicializarlos
+        if(read_register(SD_STATE)!=STATE_OK||read_register(SD_FILE)!=STATE_OK){
+            TAGInit();
+        }
+            
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+
+}
+bool TAGInit(){
+    bool sd = false, file = false;
+
+    if(sd_card_init() == 0) {
+        sd = true;
+    }
+
+    if(sd == true){
+        if(readTAGFile(TAG_FILE) == true){
+            file = true;
+            write_register(SD_FILE, STATE_OK);
+        } else {
+            write_register(SD_FILE, STATE_FAIL);
+        }
+    } else {
+        write_register(SD_FILE, STATE_FAIL);
+    }
+    
+    if(sd == true && file == true){
+        write_register(SD_STATE, STATE_OK);
+        if (read_register(FLAG_DEBUG_0) != 0) {
+            ESP_LOGI("MAIN", "SD Inicializada correctamente.");
+        }      
+        return true;
+    } else {
+        write_register(SD_STATE, STATE_FAIL); // <-- Asegura marcar el error en el registro
+        return false;
+    }
 }
 
 
@@ -140,17 +207,22 @@ void serialTask(void *pvParameters) {
                     txPacket.tipo = MSG_TYPE_TAG_NUEVO;
 
                     if (read_register(FLAG_DEBUG_0) != 0) {ESP_LOGI("UART_ANTENA", "Trama detectada (%d bytes): %s", copy_len, txPacket.datos);}
-
-                    if(read_register(DI_1_STATE)){
-                        //Espero hasta 50ms si la cola esta llena
-                        if (xQueueSend(xQueueMsg, &txPacket, pdMS_TO_TICKS(50)) != pdPASS) {
-                            if (read_register(FLAG_DEBUG_0) != 0) {ESP_LOGE("UART_ANTENA", "Error cola llena, decartando TAG:%s", txPacket.datos);}
-                        } else {
-                            if (read_register(FLAG_DEBUG_0) != 0){ESP_LOGI("UART_ANTENA", "ENVIANDO A COLA: %s", txPacket.datos);}
+                    if(validarFormatoTrama(&txPacket)==true){
+                        
+                    
+                        if(read_register(DI_1_STATE)){
+                            //Espero hasta 50ms si la cola esta llena
+                            if (xQueueSend(xQueueMsg, &txPacket, pdMS_TO_TICKS(50)) != pdPASS) {
+                                if (read_register(FLAG_DEBUG_0) != 0) {ESP_LOGE("UART_ANTENA", "Error cola llena, decartando TAG:%s", txPacket.datos);}
+                            } else {
+                                if (read_register(FLAG_DEBUG_0) != 0){ESP_LOGI("UART_ANTENA", "ENVIANDO A COLA: %s", txPacket.datos);}
+                            }
                         }
+
                     }
                     // Reiniciar el acumulador
                     line_len = 0;
+
                 }
             } else {
                 // Acumular byte en el buffer
@@ -165,13 +237,13 @@ void serialTask(void *pvParameters) {
         }
     }
 }
+
 // -----------------------------------------------------------------
 // TASK 2: Receptora
 // -----------------------------------------------------------------
-void Task2_Receiver(void *pvParameters) {
+void TAGTask(void *pvParameters) {
     PaqueteMensaje_t rxPacket;
-    gpio_reset_pin(LED_RUN);
-    gpio_set_direction(LED_RUN, GPIO_MODE_OUTPUT);
+
     ESP_ERROR_CHECK(esp_timer_create(&timed_oneshot_timer_args, &timed_oneshot_timer));
 
     for (;;) {
@@ -186,8 +258,8 @@ void Task2_Receiver(void *pvParameters) {
                 } else {
                     contador_TAGS_validos = 1;
 
-                    gpio_set_level(DO_1, 1);
-
+                    write_register(DO_1_STATE,1);
+                    write_register(TRAMBUS_DETECTADO,1);
                     ESP_ERROR_CHECK(
                         esp_timer_start_once(
                             timed_oneshot_timer,
@@ -216,7 +288,7 @@ void initUartAntena(){
     // UART2 (Antena)
     // =========================
     uart_config_t uart_config2 = (uart_config_t){
-        .baud_rate = 9600,
+        .baud_rate = UART_ANTENA_BAUD,
         .data_bits = UART_DATA_8_BITS,
         .parity    = UART_PARITY_DISABLE,
         .stop_bits = UART_STOP_BITS_1,
@@ -229,20 +301,27 @@ void initUartAntena(){
     // ** ASIGNAR LOS PINES 16/17 **
     uart_set_pin(
         UART_ANTENA,
-        16,                //TX
-        17,              //RX
+        UART_ANTENA_TX,     //TX
+        UART_ANTENA_RX,     //RX
         UART_PIN_NO_CHANGE, // RTS → sin usar
         UART_PIN_NO_CHANGE  // CTS → sin usar
     );
 
-    esp_err_t err= uart_driver_install(UART_ANTENA, 2*1024, 256, 0, NULL, 0);
+    esp_err_t err= uart_driver_install(UART_ANTENA, UART_ANTENA_BUFFER, 256, 0, NULL, 0);
 
     if(err!=ESP_OK){
+        write_register(SERIAL_TASK_STATE,1);
         ESP_LOGE("SerialTask", "Fallo al iniciar la UART antena");
         return;
     }
 
-    ESP_LOGI("SerialTask", "Uart antena configurada correctamente");
+    if(configurarAntena()!=true){
+        write_register(ANTENA_CONFIG_STATE,STATE_FAIL);
+        if(read_register(FLAG_DEBUG_0))ESP_LOGI("SerialTask", "Uart antena error al configurar la antena");
+    }else{
+        ESP_LOGI("SerialTask", "Uart antena configurada correctamente");
+    }
+
 }
 
 
@@ -251,10 +330,19 @@ void initUartAntena(){
 void userTask(void* pvParameters){
 
 
-    
+    if(userInterfaceInit()!=true){
+        write_register(USER_INTERFACE_STATE,1);
+        ESP_LOGE("userTask", "Error al inicializar la interfaz de usuario.");
+    }
+
+    if(ledsDriverInit()!=true){
+        write_register(LEDS_DRIVER_STATE,1);
+        ESP_LOGE("userTask", "Error al inicializar el driver de leds.");
+    }
+
     for(;;){
         userInterfaceUpdate();
-
+        ledsDriverUpdate();
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
@@ -274,7 +362,9 @@ void timer_callback(void *arg){
             );
         } else {
             //Si no quedan tags validos dejo de contar y apago la salida.
-            gpio_set_level(DO_1, 0);
+            write_register(DO_1_STATE,0);
+            write_register(TRAMBUS_DETECTADO,0);
+
         }
     }
 }
@@ -293,4 +383,42 @@ void digitalInputsTask(void* pvParameters){
 
     }
 
+}
+
+
+bool validarFormatoTrama(PaqueteMensaje_t* txPacket){
+
+    return true;
+
+
+    if(txPacket==NULL)
+        return false;
+    
+    if(checksum()==false)
+        return false;
+
+
+    return true;
+
+
+
+}
+
+bool checksum(){
+    return true;
+
+}
+
+bool configurarAntena(){
+    return true;
+}
+
+
+void digitalOutputsTask(){
+
+
+    for(;;){
+        digitalOutputsUpdate();
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
 }

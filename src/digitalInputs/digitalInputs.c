@@ -32,7 +32,7 @@ void digitalInputsInit(){
 
 
     // Definir las máscaras de pines para las entradas digitales
-    uint64_t input_pins_mask = (1ULL << DI_1) ;
+    uint64_t input_pins_mask = (1ULL << DI_1 ) ;
 
     // Configuración de GPIO
     gpio_config_t io_conf = {};
@@ -44,7 +44,7 @@ void digitalInputsInit(){
 
     // Configurar GPIO
     if(gpio_config(&io_conf)!=ESP_OK){
-        write_register(DI_STATE,1);
+        write_register(DIGITAL_INPUTS_STATE,1);
         ESP_LOGE("DigitalInputsInit", "Error al inicilizar las entradas digitales");
     }
 
@@ -80,7 +80,6 @@ void scanInputs(){
     }else if((historialEntradas[0] & 0x000f )== 0x0f){
     //Si tengo 4 '1' seguidos lo tomo como una entrada valida
 
-        
         write_register(DI_1_STATE,1);
     }
 }

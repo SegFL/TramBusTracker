@@ -265,7 +265,6 @@ static void onUpdateNode(MenuNode* n) {
             break;
         */
         case 13:{
-            if(read_register(FLAG_DEBUG_1))
                 printDataValues();
         }break;
 
@@ -292,73 +291,103 @@ static bool nodeRequiresInput(int id) {
 }
 void printDataNames(void)
 {
-    moveCursor(1, 1);
+    int i=1;
+    moveCursor(i++, 1);
     writeSerialCom("LEDRUN_STATE");
 
-    moveCursor(2, 1);
+    moveCursor(i++, 1);
     writeSerialCom("FLAG_DEBUG_0");
 
-    moveCursor(3, 1);
+    moveCursor(i++, 1);
     writeSerialCom("FLAG_DEBUG_1");
 
-    moveCursor(4, 1);
+    moveCursor(i++, 1);
     writeSerialCom("TAGS_TASK_STATE");
 
-    moveCursor(5, 1);
+    moveCursor(i++, 1);
     writeSerialCom("SERIAL_TASK_STATE");
 
-    moveCursor(6, 1);
+    moveCursor(i++, 1);
+    writeSerialCom("ANTENA_CONFIG_STATE");
+
+    moveCursor(i++, 1);
+    writeSerialCom("LEDS_DRIVER_STATE");
+
+    moveCursor(i++, 1);
     writeSerialCom("SD_STATE");
 
-    moveCursor(7, 1);
+    moveCursor(i++, 1);
+    writeSerialCom("SD_FILE");
+
+    moveCursor(i++, 1);
     writeSerialCom("USER_INTERFACE_STATE");
 
-    moveCursor(8, 1);
-    writeSerialCom("DI_STATE");
+    moveCursor(i++, 1);
+    writeSerialCom("DIGITAL_INPUTS_STATE");
 
-    moveCursor(9, 1);
+    moveCursor(i++, 1);
     writeSerialCom("DI_1_STATE");
+
+    moveCursor(i++, 1);
+    writeSerialCom("TRAMBUS_DETECTADO");
 }
 
 void printDataValues(void)
 {
     char buffer[20];
-
-    moveCursor(1, 35);
+    int i=1;
+    moveCursor(i++, 35);
     snprintf(buffer, sizeof(buffer), "%u", read_register(LEDRUN_STATE));
     writeSerialCom(buffer);
 
-    moveCursor(2, 35);
+    moveCursor(i++, 35);
     snprintf(buffer, sizeof(buffer), "%u", read_register(FLAG_DEBUG_0));
     writeSerialCom(buffer);
 
-    moveCursor(3, 35);
+    moveCursor(i++, 35);
     snprintf(buffer, sizeof(buffer), "%u", read_register(FLAG_DEBUG_1));
     writeSerialCom(buffer);
 
-    moveCursor(4, 35);
+    moveCursor(i++, 35);
     snprintf(buffer, sizeof(buffer), "%u", read_register(TAGS_TASK_STATE));
     writeSerialCom(buffer);
 
-    moveCursor(5, 35);
+    moveCursor(i++, 35);
     snprintf(buffer, sizeof(buffer), "%u", read_register(SERIAL_TASK_STATE));
     writeSerialCom(buffer);
 
-    moveCursor(6, 35);
+    moveCursor(i++, 35);
+    snprintf(buffer, sizeof(buffer), "%u", read_register(ANTENA_CONFIG_STATE));
+    writeSerialCom(buffer);
+
+    moveCursor(i++, 35);
+    snprintf(buffer, sizeof(buffer), "%u", read_register(LEDS_DRIVER_STATE));
+    writeSerialCom(buffer);
+
+    moveCursor(i++, 35);
     snprintf(buffer, sizeof(buffer), "%u", read_register(SD_STATE));
     writeSerialCom(buffer);
 
-    moveCursor(7, 35);
+    moveCursor(i++, 35);
+    snprintf(buffer, sizeof(buffer), "%u", read_register(SD_FILE));
+    writeSerialCom(buffer);
+
+    moveCursor(i++, 35);
     snprintf(buffer, sizeof(buffer), "%u", read_register(USER_INTERFACE_STATE));
     writeSerialCom(buffer);
 
-    moveCursor(8, 35);
-    snprintf(buffer, sizeof(buffer), "%u", read_register(DI_STATE));
+    moveCursor(i++, 35);
+    snprintf(buffer, sizeof(buffer), "%u", read_register(DIGITAL_INPUTS_STATE));
     writeSerialCom(buffer);
 
-    moveCursor(9, 35);
+    moveCursor(i++, 35);
     snprintf(buffer, sizeof(buffer), "%u", read_register(DI_1_STATE));
     writeSerialComln(buffer);
+
+    moveCursor(i++, 35);
+    snprintf(buffer, sizeof(buffer), "%u", read_register(TRAMBUS_DETECTADO));
+    writeSerialComln(buffer);
+
 }
 
 void moveCursor(int row, int col) {
