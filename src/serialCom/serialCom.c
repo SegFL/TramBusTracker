@@ -6,8 +6,11 @@
 #include <errno.h>
 #include <stdarg.h>
 #include "driver/uart.h"
+#include "esp_log.h"
+#include "esp_err.h" 
 uart_config_t uart_config1;
 
+bool consolaIniciada=false;
 
 //Puerto UART para consola (logs, info, debug)
 #define UART_DEBUG UART_NUM_0
@@ -15,8 +18,22 @@ uart_config_t uart_config1;
 
 void print(const char* str) ;
 
-void initUart(void)
+
+esp_err_t initUart(void)
 {
+    esp_err_t ret;
+
+    // Guarda: ya inicializada -> verificar consistencia y salir
+    if (consolaIniciada) {
+        if (uart_is_driver_installed(UART_DEBUG)) {
+            ESP_LOGW("SerialCom", "UART ya inicializada, se omite reinit");
+            return ESP_OK;
+        } else {
+            // Bandera desincronizada del estado real del driver
+            ESP_LOGW("SerialCom", "Flag inconsistente, reinicializando");
+            consolaIniciada = false;
+        }
+    }
 
     // ===== UART0 (CONSOLA) =====
     uart_config1 = (uart_config_t){
@@ -28,14 +45,21 @@ void initUart(void)
         .rx_flow_ctrl_thresh = 0
     };
 
-    uart_param_config(UART_DEBUG, &uart_config1);
-    uart_driver_install(UART_DEBUG, 1024, 1024, 0, NULL, 0);
+    ret = uart_param_config(UART_DEBUG, &uart_config1);
+    if (ret != ESP_OK) {
+        ESP_LOGE("SerialCom", "uart_param_config fallo: %s", esp_err_to_name(ret));
+        return ret;
+    }
 
-    writeSerialComln("CONSOLA iniciada");
+    ret = uart_driver_install(UART_DEBUG, 1024, 1024, 0, NULL, 0);
+    if (ret != ESP_OK) {
+        ESP_LOGE("SerialCom", "uart_driver_install fallo: %s", esp_err_to_name(ret));
+        return ret;
+    }
 
-
-
-
+    consolaIniciada = true;
+    ESP_LOGI("SerialCom", "Consola iniciada");
+    return ESP_OK;
 }
 
 

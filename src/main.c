@@ -18,6 +18,13 @@
 
 #define MAX_UART_BUFFER_SIZE 64         //Cantidad de bytes que lee la UART antena cada vez
 
+
+//Secuencia de debug 
+#define ESC_CHAR       0x1B
+#define ESC_REQUIRED   3
+#define ESC_TIMEOUT_US (2000 * 1000) // 2 segundos
+bool debugConsoleEnabled=false; 
+
 void initUartAntena();
 void timer_callback(void *arg);
 
@@ -55,16 +62,32 @@ void TAGTask();
 void TAGFileTask(void* pvParameters);
 void userTask(void* pvParameters);
 void digitalInputsTask(void* pvParameters);
-void digitalOutputsTask();
-
-
+void digitalOutputsTask(void* pvParameters);
+void IOTask(void* pvParameters);
+void ledsDriverTask(void*pvParameters);
 //Funciones privadas 
 bool checksum();
 bool validarFormatoTrama(PaqueteMensaje_t* txPacket);
 bool configurarAntena();
 bool TAGInit();
+bool debugSequence();
 
 void app_main() {
+
+    //Cambia el nivel de detalle de los mensajes impresos por la consola
+    esp_log_level_set("*", ESP_LOG_NONE);
+
+    //Si el usario envia la secuencia de debug enciendo los logs de errores
+    if(debugSequence()==true){
+
+        debugConsoleEnabled=true;
+        write_register(FLAG_DEBUG_0,1);
+        esp_log_level_set("*", ESP_LOG_VERBOSE);
+
+    }
+
+        
+
 
 
 
@@ -91,7 +114,9 @@ void app_main() {
     //Pongo un delay para evitar que se impriman mensajes del 
     //menu antes de que se terminene de inicializar el resto de las tareas
     vTaskDelay(pdMS_TO_TICKS(100));
-    xTaskCreate(userTask,"userTask",2*2048,NULL,3,NULL);
+    xTaskCreate(ledsDriverTask,"userTask",2*2048,NULL,3,NULL);
+    if(debugConsoleEnabled==true)
+        xTaskCreate(userTask,"userTask",2*2048,NULL,3,NULL);
 
 
 
@@ -116,9 +141,12 @@ void TAGFileTask(void* pvParameters){
 
     //Intento inicializar la SD, si falla se queda intentnado en un bucle infinito
     while(1){
-        if(TAGInit()==true)
-            break;
-        if (read_register(FLAG_DEBUG_0) != 0)ESP_LOGE("MAIN", "Error al inicializar la SD.");      
+        if (TAGInit() == true) {
+            break; // SD y Archivo inicializados con éxito
+        }
+        if (read_register(FLAG_DEBUG_0) != 0) {
+            ESP_LOGE("MAIN", "Error al inicializar la SD. Reintentando en 3s...");
+        }      
         vTaskDelay(pdMS_TO_TICKS(3000));
         
     }
@@ -129,8 +157,13 @@ void TAGFileTask(void* pvParameters){
 
 
     while(1){
-        //Si la SD o el archivo de TAGS no funcionan, intento inicializarlos
-        if(read_register(SD_STATE)!=STATE_OK||read_register(SD_FILE)!=STATE_OK){
+        // Si la SD o el archivo entraron en estado de fallo (por ejemplo, al extraer la SD)
+        if (read_register(SD_STATE) != STATE_OK || read_register(SD_FILE) != STATE_OK) {
+            if (read_register(FLAG_DEBUG_0) != 0) {
+                ESP_LOGW("MAIN", "Fallo detectado en SD/Archivo. Intentando re-inicializar...");
+            }
+            
+            // Reintentar reconexión limpia
             TAGInit();
         }
             
@@ -230,7 +263,7 @@ void serialTask(void *pvParameters) {
                     line_buf[line_len++] = rx_byte;
                 } else {
                     // Si la trama supera el tamaño máximo permitido, descartar para evitar corrupción
-                    if (read_register(FLAG_DEBUG_0) != 0){ESP_LOGW("UART_ANTENA", "Saturación de trama, descartando buffer");}
+                    if (read_register(FLAG_DEBUG_0) != 0){ESP_LOGI("UART_ANTENA", "Saturación de trama, descartando buffer");}
                     line_len = 0;
                 }
             }
@@ -253,6 +286,10 @@ void TAGTask(void *pvParameters) {
                 ESP_LOGI("TAGTask", "Mensaje recibido -> Tipo: 0x%02X | Datos: %s", rxPacket.tipo, rxPacket.datos);
 
             if (buscarTAG((const char *)rxPacket.datos)) {
+
+                unsigned short c=read_register(TRAMBUS_COUNTER);
+                c++;
+                write_register(TRAMBUS_COUNTER,c);
                 if (esp_timer_is_active(timed_oneshot_timer)!=0) {
                     contador_TAGS_validos++;
                 } else {
@@ -273,7 +310,7 @@ void TAGTask(void *pvParameters) {
                 }
             }else{
                 if(read_register(FLAG_DEBUG_0)!=0)
-                    ESP_LOGW("TAGTask", "----TAG TRAMBUS INVALIDO----");
+                    ESP_LOGI("TAGTask", "----TAG TRAMBUS INVALIDO----");
 
             }
         }
@@ -317,7 +354,7 @@ void initUartAntena(){
 
     if(configurarAntena()!=true){
         write_register(ANTENA_CONFIG_STATE,STATE_FAIL);
-        if(read_register(FLAG_DEBUG_0))ESP_LOGI("SerialTask", "Uart antena error al configurar la antena");
+        if(read_register(FLAG_DEBUG_0))ESP_LOGE("SerialTask", "Uart antena error al configurar la antena");
     }else{
         ESP_LOGI("SerialTask", "Uart antena configurada correctamente");
     }
@@ -335,14 +372,10 @@ void userTask(void* pvParameters){
         ESP_LOGE("userTask", "Error al inicializar la interfaz de usuario.");
     }
 
-    if(ledsDriverInit()!=true){
-        write_register(LEDS_DRIVER_STATE,1);
-        ESP_LOGE("userTask", "Error al inicializar el driver de leds.");
-    }
+
 
     for(;;){
         userInterfaceUpdate();
-        ledsDriverUpdate();
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
@@ -414,11 +447,60 @@ bool configurarAntena(){
 }
 
 
-void digitalOutputsTask(){
+void digitalOutputsTask(void* pvParameters){
 
+
+    if(digitalOutputsInit()==true){
+        write_register(DIGITAL_OUTPUTS_STATE,STATE_OK);
+    }else{
+        write_register(DIGITAL_OUTPUTS_STATE,STATE_FAIL);
+    }
 
     for(;;){
-        digitalOutputsUpdate();
+        if(read_register(DIGITAL_OUTPUTS_STATE)==STATE_OK)
+            digitalOutputsUpdate();
         vTaskDelay(pdMS_TO_TICKS(10));
+    }
+}
+
+
+
+bool debugSequence(){
+
+    initUart();
+    
+
+    int escCount = 0;
+    int64_t start = esp_timer_get_time();
+
+    while ((esp_timer_get_time() - start) < ESC_TIMEOUT_US) {
+        char c = readUserChar();
+        if (c == ESC_CHAR) {
+            escCount++;
+        }
+    }
+
+    if (escCount >= ESC_REQUIRED) {
+        return true;
+    }
+
+
+    return false;
+}
+
+
+void ledsDriverTask(void*pvParameters){
+
+    if(ledsDriverInit()==true){
+        write_register(LEDS_DRIVER_STATE,STATE_OK);
+    }else{
+        write_register(LEDS_DRIVER_STATE,STATE_FAIL);
+
+    }
+
+    for(;;){
+        if(read_register(LEDS_DRIVER_STATE)==STATE_OK)
+            ledsDriverUpdate();
+        vTaskDelay(pdMS_TO_TICKS(50));
     }
 }

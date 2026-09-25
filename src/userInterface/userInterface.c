@@ -42,9 +42,9 @@ bool userInterfaceInit(){
     clearScreen();//Borra mensajes del ESP32 al iniciar el programa
     menu=menuInit();
     if(menu){
-        writeSerialComln("Menu inicializado");
+        ESP_LOGI("userInterface", "Menu inicializado");
     }else{
-        writeSerialComln("Menu no inicializado");
+        ESP_LOGI("userInterface", "Menu no inicializado");
     }
 
 
@@ -146,14 +146,18 @@ void procesarDatos(const char* data, unsigned char length) {
         
         if(strcasecmp(data, "y") == 0 || strcasecmp(data, "yes") == 0) {
             write_register(FLAG_DEBUG_0,1);
-            writeSerialComln("Modo debug 0 activado");
+            esp_log_level_set("*", ESP_LOG_VERBOSE);
+            ESP_LOGI("userInterface", "Modo debug 0 activado");
 
         } else if(strcasecmp(data, "n") == 0 || strcasecmp(data, "no") == 0) {
             write_register(FLAG_DEBUG_0,0);
-            writeSerialComln("Modo debug 0 desactivado");
+            ESP_LOGI("userInterface", "Modo debug 0 desactivado");
+            //Apago el LOG/impresion despues de imprimir el mensaje de desactivado(si no no se imprime)
+            esp_log_level_set("*", ESP_LOG_NONE);
+
 
         } else {
-            writeSerialComln("Valor invalido. Use 'Y' para habilitar o 'N' para deshabilitar");
+            ESP_LOGI("userInterface", "Valor invalido. Use 'Y' para habilitar o 'N' para deshabilitar");
         }
 
     }
@@ -162,15 +166,16 @@ void procesarDatos(const char* data, unsigned char length) {
         
         if(strcasecmp(data, "y") == 0 || strcasecmp(data, "yes") == 0) {
             write_register(FLAG_DEBUG_1,1);
-            writeSerialComln("Modo debug 0 activado");
+            ESP_LOGI("userInterface", "Modo debug 1 activado");
             printDataNames();
 
         } else if(strcasecmp(data, "n") == 0 || strcasecmp(data, "no") == 0) {
             write_register(FLAG_DEBUG_1,0);
-            writeSerialComln("Modo debug 0 desactivado");
+            esp_log_level_set("*", ESP_LOG_NONE);
+            ESP_LOGI("userInterface", "Modo debug 1 desactivado");
 
         } else {
-            writeSerialComln("Valor invalido. Use 'Y' para habilitar o 'N' para deshabilitar");
+            ESP_LOGI("userInterface", "Valor invalido. Use 'Y' para habilitar o 'N' para deshabilitar");
         }
 
     }
@@ -247,8 +252,8 @@ static void onEnterNode(MenuNode* n) {
         buffer_index = 0;
 
         switch (n->id) {
-            //case xx:  writeSerialComln("Ingrese SSID y presione 'ENTER' para confirmar"); break;
-            case 12: writeSerialComln("Introdcuti <Y> para activar y <N> para desactivar el modo debug 0");break;
+            //case xx:  ESP_LOGI("userInterface", "Ingrese SSID y presione 'ENTER' para confirmar"); break;
+            case 12: ESP_LOGI("userInterface", "Introdcuti <Y> para activar y <N> para desactivar el modo debug 0");break;
             default: break;
         }
     }
@@ -304,6 +309,8 @@ void printDataNames(void)
     moveCursor(i++, 1);
     writeSerialCom("TAGS_TASK_STATE");
 
+    moveCursor(i++, 1); writeSerialCom("TAGS_BUSCANDO_SD");    
+
     moveCursor(i++, 1);
     writeSerialCom("SERIAL_TASK_STATE");
 
@@ -328,14 +335,30 @@ void printDataNames(void)
     moveCursor(i++, 1);
     writeSerialCom("DI_1_STATE");
 
+    moveCursor(i++, 1); 
+    writeSerialCom("DIGITAL_OUTPUTS_STATE");  
+
+    moveCursor(i++, 1); 
+    writeSerialCom("DO_1_STATE");           
+
     moveCursor(i++, 1);
     writeSerialCom("TRAMBUS_DETECTADO");
+
+    moveCursor(i++, 1); 
+    writeSerialCom("TRAMBUS_COUNTER");        
+    moveCursor(i++, 1); 
+    writeSerialCom("CAR_COUNTER");         
+
+
 }
 
 void printDataValues(void)
 {
     char buffer[20];
     int i=1;
+ 
+    writeSerialCom("\033[s");   // guarda posición actual de la terminal (donde estaba el log normal)
+
     moveCursor(i++, 35);
     snprintf(buffer, sizeof(buffer), "%u", read_register(LEDRUN_STATE));
     writeSerialCom(buffer);
@@ -350,6 +373,10 @@ void printDataValues(void)
 
     moveCursor(i++, 35);
     snprintf(buffer, sizeof(buffer), "%u", read_register(TAGS_TASK_STATE));
+    writeSerialCom(buffer);
+
+    moveCursor(i++, 35);
+    snprintf(buffer, sizeof(buffer), "%u", read_register(TAGS_BUSCANDO_SD)); 
     writeSerialCom(buffer);
 
     moveCursor(i++, 35);
@@ -385,8 +412,28 @@ void printDataValues(void)
     writeSerialComln(buffer);
 
     moveCursor(i++, 35);
+    snprintf(buffer, sizeof(buffer), "%u", read_register(DIGITAL_OUTPUTS_STATE)); 
+    writeSerialCom(buffer);
+
+    moveCursor(i++, 35);
+    snprintf(buffer, sizeof(buffer), "%u", read_register(DO_1_STATE));           
+    writeSerialCom(buffer);
+
+    moveCursor(i++, 35);
     snprintf(buffer, sizeof(buffer), "%u", read_register(TRAMBUS_DETECTADO));
     writeSerialComln(buffer);
+
+    moveCursor(i++, 35);
+    snprintf(buffer, sizeof(buffer), "%u", read_register(TRAMBUS_COUNTER));      
+    writeSerialCom(buffer);
+
+    moveCursor(i++, 35);
+    snprintf(buffer, sizeof(buffer), "%u", read_register(CAR_COUNTER));        
+    writeSerialCom(buffer);
+
+    writeSerialCom("\033[u");   // restaura posición: el próximo mensaje de otro módulo continúa ahí
+
+
 
 }
 
@@ -396,3 +443,5 @@ void moveCursor(int row, int col) {
     writeSerialCom(buffer);
 
 }
+
+

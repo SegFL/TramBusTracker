@@ -22,7 +22,11 @@
 //Led Buil-In
 #define LED_RUN GPIO_NUM_2   
 //Led de estados
-#define LED_SD_STATE GPIO_NUM_19
+#define LED_SD_STATE GPIO_NUM_19    //Titila si falla la SD 
+#define LED_SD_BASE_PERIOD 20       //Titila mas rapido si el archivo .txt esta mal
+
+#define LED_TAG_STATE GPIO_NUM_21   //Led para saber cuando se esta buscando un TAG en la SD
+#define LED_TAG_BASE_PERIOD 1
 
 //SPI Pins para la SD
 #define PIN_NUM_MISO 14

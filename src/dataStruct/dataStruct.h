@@ -8,6 +8,7 @@ enum data {
     FLAG_DEBUG_0,           //Para mensajes de error
     FLAG_DEBUG_1,           //Para imprimir por consola el estado de dataStruct
     TAGS_TASK_STATE,
+    TAGS_BUSCANDO_SD,       //Esta en 1 cuando se esta buscando un TAG en la SD(RAM (1)/FLASH(2))
     SERIAL_TASK_STATE,
     ANTENA_CONFIG_STATE,    //Estado de la configuracion de la antena
     LEDS_DRIVER_STATE,
@@ -19,6 +20,8 @@ enum data {
     DIGITAL_OUTPUTS_STATE,
     DO_1_STATE,
     TRAMBUS_DETECTADO,      //0 Significa que no hay trambus 1 que si hay con TAG valido
+    TRAMBUS_COUNTER,
+    CAR_COUNTER,
     DIM_DATOS
 };
 

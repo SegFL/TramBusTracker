@@ -7,12 +7,12 @@
 
 #include <stddef.h>
 #include <stdint.h>
-
+#include "esp_err.h" 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-void initUart();
+esp_err_t initUart();
 void sendUartDataln(const uint8_t* data, size_t len) ;
 void sendUartData(const uint8_t* data, size_t len)  ;
 void writeSerialComln(const char* data);
