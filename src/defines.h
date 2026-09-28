@@ -13,7 +13,7 @@
                                 // NO se incluyen en esta cuenta /n ni /r
 
 //Boton / Sensor inductivo
-#define DI_1 GPIO_NUM_23
+#define DI_1 GPIO_NUM_36
 
 
 //Salidas de demanda
@@ -42,3 +42,23 @@
 #define UART_ANTENA_RX  17
 #define UART_ANTENA_BAUD 9600
 #define UART_ANTENA_BUFFER 2048
+
+//Bridge ANTENA-DB9(232)
+#define UART_BRIDGE UART_NUM_1
+#define UART_BRIDGE_TX  23
+#define UART_BRIDGE_RX  22
+#define UART_BRIDGE_BAUD 9600
+#define UART_BRIDGE_BUFFER 2048
+
+
+//Tiempo que titila el led de LED_TAG_STATE al haber buscado un tag en la SD
+#define T_OFF_REGISTER_LED_TAG 1000000
+
+
+
+//Caracter inicial para considerar una trama TAG valida
+#define START_CHARACTER '#'
+//#define CHECKSUM_DISABLED    
+#define ACK_NACK_ENABLED
+#define NACK_SEQUENCE "?"
+#define ACK_SEQUENCE "@"

@@ -9,7 +9,7 @@ enum data {
     FLAG_DEBUG_1,           //Para imprimir por consola el estado de dataStruct
     TAGS_TASK_STATE,
     TAGS_BUSCANDO_SD,       //Esta en 1 cuando se esta buscando un TAG en la SD(RAM (1)/FLASH(2))
-    SERIAL_TASK_STATE,
+    SERIAL_TASK_STATE,      //Si pones 1 falla la uart de la antena, si pones 2 es el bridge
     ANTENA_CONFIG_STATE,    //Estado de la configuracion de la antena
     LEDS_DRIVER_STATE,
     SD_STATE,               //Estado de la conexion con la SD

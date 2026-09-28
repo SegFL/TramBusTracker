@@ -15,7 +15,7 @@
 #include "defines.h"
 #include "src/ledsDriver/ledsDriver.h"
 #include "src/digitalOutputs/digitalOutputs.h"
-
+#include "src/auxFunc/auxFunc.h"
 #define MAX_UART_BUFFER_SIZE 64         //Cantidad de bytes que lee la UART antena cada vez
 
 
@@ -26,6 +26,7 @@
 bool debugConsoleEnabled=false; 
 
 void initUartAntena();
+void initUartBridge();
 void timer_callback(void *arg);
 
 
@@ -66,12 +67,13 @@ void digitalOutputsTask(void* pvParameters);
 void IOTask(void* pvParameters);
 void ledsDriverTask(void*pvParameters);
 //Funciones privadas 
-bool checksum();
+bool checksum(uint8_t *datos, size_t len);
 bool validarFormatoTrama(PaqueteMensaje_t* txPacket);
 bool configurarAntena();
 bool TAGInit();
 bool debugSequence();
-
+void sendAck();
+void sendNack();
 void app_main() {
 
     //Cambia el nivel de detalle de los mensajes impresos por la consola
@@ -196,7 +198,7 @@ bool TAGInit(){
         }      
         return true;
     } else {
-        write_register(SD_STATE, STATE_FAIL); // <-- Asegura marcar el error en el registro
+        write_register(SD_STATE, STATE_FAIL); 
         return false;
     }
 }
@@ -211,14 +213,11 @@ void serialTask(void *pvParameters) {
     uint8_t rx_buffer[MAX_UART_BUFFER_SIZE];
 
     initUartAntena();
-
+    initUartBridge();
     for (;;) {
-        int len = uart_read_bytes(
-            UART_ANTENA,
-            rx_buffer,
-            sizeof(rx_buffer),
-            pdMS_TO_TICKS(10)
-        );
+        int len = uart_read_bytes(UART_ANTENA,rx_buffer,sizeof(rx_buffer),pdMS_TO_TICKS(10));
+        //Retransmito todo tal cual me llega a la uart bridge
+        if(len>0)uart_write_bytes(UART_BRIDGE, (const char *) rx_buffer, len);
 
         for (int j = 0; j < len; j++) {
             uint8_t rx_byte = rx_buffer[j];
@@ -228,7 +227,7 @@ void serialTask(void *pvParameters) {
                 continue;
             }
 
-            // Al encontrar fin de línea, procesamos la trama acumula
+            
             if (rx_byte == '\n') {
                 if (line_len > 0) { // Evito tramas vacías
                     memset(txPacket.datos, 0, SIZE_PAYLOAD);
@@ -322,7 +321,7 @@ void initUartAntena(){
 
 
     // =========================
-    // UART2 (Antena)
+    // UART (Antena)
     // =========================
     uart_config_t uart_config2 = (uart_config_t){
         .baud_rate = UART_ANTENA_BAUD,
@@ -418,28 +417,76 @@ void digitalInputsTask(void* pvParameters){
 
 }
 
+bool checksum(uint8_t *datos, size_t len) {
+    if (datos == NULL || len == 0) {
+        return false;
+    }
 
-bool validarFormatoTrama(PaqueteMensaje_t* txPacket){
+    if (len < 2) {
+        return false;
+    }
+
+    #ifdef CHECKSUM_DISABLED
+    ESP_LOGI("CHECKSUM", "Checksum valido( sin checksum )");
 
     return true;
+    #endif
 
-
-    if(txPacket==NULL)
+    if (datos[0] != START_CHARACTER) {
         return false;
+    }
+
+    uint16_t checksum_trama =
+        ((uint16_t)datos[len - 2] << 8) | datos[len - 1];
+
+    datos[len - 2] = 0;
+
+    if (calccrc(datos + 1) != checksum_trama) {
+        ESP_LOGI("CHECKSUM", "Checksum invalido");
+        #ifdef ACK_NACK_ENABLED
+        sendAck();
+        #endif
+        return false;
+    }
+    #ifdef ACK_NACK_ENABLED
+    sendNack();
+    #endif
     
-    if(checksum()==false)
-        return false;
 
-
+    ESP_LOGI("CHECKSUM", "Checksum valido");
     return true;
+}
 
 
+void sendNack(){
+    const char* nack_seq=NACK_SEQUENCE;
+    uart_write_bytes(UART_BRIDGE,nack_seq,strlen(nack_seq));
+    uart_write_bytes(UART_ANTENA,nack_seq,strlen(nack_seq));
 
 }
 
-bool checksum(){
-    return true;
+void sendAck(){
 
+    const char* ack_seq=ACK_SEQUENCE;
+
+    uart_write_bytes(UART_BRIDGE,ack_seq,strlen(ack_seq));
+    uart_write_bytes(UART_ANTENA,ack_seq,strlen(ack_seq));
+
+}
+bool validarFormatoTrama(PaqueteMensaje_t* txPacket) {
+    if (txPacket == NULL) {
+        return false;
+    }
+
+    // Calculamos la longitud real de la cadena guardada en txPacket->datos
+    size_t len = strlen((const char *)txPacket->datos);
+
+    // Le pasamos los datos y la longitud a la función checksum
+    if (checksum(txPacket->datos, len) == false) {
+        return false;
+    }
+
+    return true;
 }
 
 bool configurarAntena(){
@@ -465,11 +512,9 @@ void digitalOutputsTask(void* pvParameters){
 
 
 
-bool debugSequence(){
-
+bool debugSequence() {
     initUart();
     
-
     int escCount = 0;
     int64_t start = esp_timer_get_time();
 
@@ -477,13 +522,12 @@ bool debugSequence(){
         char c = readUserChar();
         if (c == ESC_CHAR) {
             escCount++;
+            if (escCount >= ESC_REQUIRED) {
+                return true;
+            }
         }
+        vTaskDelay(pdMS_TO_TICKS(10)); 
     }
-
-    if (escCount >= ESC_REQUIRED) {
-        return true;
-    }
-
 
     return false;
 }
@@ -503,4 +547,42 @@ void ledsDriverTask(void*pvParameters){
             ledsDriverUpdate();
         vTaskDelay(pdMS_TO_TICKS(50));
     }
+}
+
+
+void initUartBridge(){
+
+    
+    // =========================
+    // UART (Bridge)
+    // =========================
+    uart_config_t uart_config3 = (uart_config_t){
+        .baud_rate = UART_BRIDGE_BAUD,
+        .data_bits = UART_DATA_8_BITS,
+        .parity    = UART_PARITY_DISABLE,
+        .stop_bits = UART_STOP_BITS_1,
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+        .rx_flow_ctrl_thresh = 0
+
+    };
+    uart_param_config(UART_BRIDGE, &uart_config3);
+
+    //Asigno pines
+    uart_set_pin(
+        UART_BRIDGE,
+        UART_BRIDGE_TX,     //TX
+        UART_BRIDGE_RX,     //RX
+        UART_PIN_NO_CHANGE, // RTS → sin usar
+        UART_PIN_NO_CHANGE  // CTS → sin usar
+    );
+
+    esp_err_t err= uart_driver_install(UART_BRIDGE, UART_BRIDGE_BUFFER, 256, 0, NULL, 0);
+
+    if(err!=ESP_OK){
+        write_register(SERIAL_TASK_STATE,2);
+        ESP_LOGE("SerialTask", "Fallo al iniciar la UART bridge");
+        return;
+    }
+
+
 }

@@ -357,7 +357,7 @@ void turnon_register(){
         ESP_ERROR_CHECK(
             esp_timer_start_once(
                 timed_oneshot_timer_sd,
-                1000000
+                T_OFF_REGISTER_LED_TAG
             )
         );
     }   
@@ -373,7 +373,7 @@ void turnoff_register(void *arg){
 
             // Re disparo el timer para volver a contar 
             ESP_ERROR_CHECK(
-                esp_timer_start_once(timed_oneshot_timer_sd, 1000000)
+                esp_timer_start_once(timed_oneshot_timer_sd, T_OFF_REGISTER_LED_TAG)
             );
         } else {
             write_register(TAGS_BUSCANDO_SD,0);
