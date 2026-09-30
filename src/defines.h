@@ -14,6 +14,7 @@
 
 //Boton / Sensor inductivo
 #define DI_1 GPIO_NUM_36
+#define DI_2 GPIO_NUM_39
 
 
 //Salidas de demanda
@@ -33,7 +34,8 @@
 #define PIN_NUM_MOSI 13
 #define PIN_NUM_CLK  27
 #define PIN_NUM_CS   26
-
+#define PIN_NUM_DETECT 35   //Card detect
+#define PIN_NUM_NWP 34      //Write protect
 
 //Pines para la UART de la antena correspondientes a la UART_ANTENA
 //ATENCION: NO USAR UART0 (CONSOLA DE DEBUG)
@@ -62,3 +64,8 @@
 #define ACK_NACK_ENABLED
 #define NACK_SEQUENCE "?"
 #define ACK_SEQUENCE "@"
+
+//Sirve para bypasear toda la logica de la SD y los TAGS
+//Si el sensor inductivo se activa automaticamente se activa el rele(DO) 
+//para encender la antena.
+//#define BYPASS_TAG_FILTER

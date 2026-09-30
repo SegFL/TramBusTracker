@@ -211,6 +211,8 @@ void serialTask(void *pvParameters) {
     uint16_t line_len = 0;
 
     uint8_t rx_buffer[MAX_UART_BUFFER_SIZE];
+    //Buffer para el bridge ANTENA(422)-BRIDGE(232)
+    uint8_t rx_buffer_2[MAX_UART_BUFFER_SIZE];
 
     initUartAntena();
     initUartBridge();
@@ -218,7 +220,9 @@ void serialTask(void *pvParameters) {
         int len = uart_read_bytes(UART_ANTENA,rx_buffer,sizeof(rx_buffer),pdMS_TO_TICKS(10));
         //Retransmito todo tal cual me llega a la uart bridge
         if(len>0)uart_write_bytes(UART_BRIDGE, (const char *) rx_buffer, len);
-
+        //Todo lo que llega de la UART_BRIDGE lo restrasnmito tal cual a la UART_ANTENA
+        int len2 = uart_read_bytes(UART_BRIDGE,rx_buffer_2,sizeof(rx_buffer_2),0);
+        if(len2>0)uart_write_bytes(UART_ANTENA,(const char *)rx_buffer_2,len2);
         for (int j = 0; j < len; j++) {
             uint8_t rx_byte = rx_buffer[j];
 
@@ -433,6 +437,7 @@ bool checksum(uint8_t *datos, size_t len) {
     #endif
 
     if (datos[0] != START_CHARACTER) {
+        ESP_LOGI("CHECKSUM","Fallo de caracteres de inicio");
         return false;
     }
 

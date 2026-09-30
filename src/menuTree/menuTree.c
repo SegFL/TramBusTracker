@@ -75,6 +75,11 @@ MenuNode* menuInit() {
         MenuNode* node_12 = create_node("dataStruct", '2', 13);
         add_child(node_1,node_12);
 
+    MenuNode* node_2 = create_node("Fozar salidas", '2', 2);
+    add_child(root, node_2);
+
+        MenuNode* node_21 = create_node("Fozar salidas", '1', 21);
+        add_child(node_2, node_21);
 
     return root;
 

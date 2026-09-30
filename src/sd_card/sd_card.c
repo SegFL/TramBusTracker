@@ -135,6 +135,9 @@ esp_err_t sd_card_init(void) {
     // Configuración del slot SD
     sdspi_device_config_t slot_config = SDSPI_DEVICE_CONFIG_DEFAULT();
     slot_config.gpio_cs = PIN_NUM_CS;
+    slot_config.gpio_cd = PIN_NUM_DETECT;
+    slot_config.gpio_wp = PIN_NUM_NWP;
+
     slot_config.host_id = host.slot;
 
     esp_vfs_fat_sdmmc_mount_config_t mount_config = {

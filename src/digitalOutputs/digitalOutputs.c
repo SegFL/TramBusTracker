@@ -24,6 +24,14 @@ bool digitalOutputsInit(){
 void digitalOutputsUpdate(){
 
     gpio_set_level(LED_RUN,read_register(LEDRUN_STATE));
-    gpio_set_level(DO_1,read_register(DO_1_STATE));
 
+    #ifdef BYPASS_TAG_FILTER
+        gpio_set_level(DO_1,read_register(DI_1_STATE));
+    #else    
+        if(read_register(FORCE_OUTPUTS)!=0){
+            gpio_set_level(DO_1,read_register(DO_1_FORCED_STATE));
+        }else{
+            gpio_set_level(DO_1,read_register(DO_1_STATE));
+        }
+    #endif
 }

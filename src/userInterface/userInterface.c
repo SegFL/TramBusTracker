@@ -16,6 +16,12 @@
 
 
 
+void printDigiatlOutputsNames();
+void printDigiatlOutputsValue();
+
+
+
+
 static MenuNode *menu = NULL;
 char data_buffer[MAX_DATA_BUFFER] ; //Variable para almacenar los datos recibidos
 unsigned char buffer_index = 0; //Índice para el buffer de datos
@@ -180,10 +186,83 @@ void procesarDatos(const char* data, unsigned char length) {
 
     }
 
+if(menu->id == 21){
+    char buffer[20];
 
+    memcpy(buffer, data, length);
+    buffer[length] = '\0';
 
+    // Desforzar salidas
+    if(strcasecmp(buffer, "n") == 0 || strcasecmp(buffer, "no") == 0){
+        write_register(FORCE_OUTPUTS, 0);
+        ESP_LOGI("userInterface", "Des-forzando salidas digitales");
+        return;
+    }
 
+    char *token = strtok(buffer, ",");
 
+    if(token == NULL){
+        ESP_LOGE("userInterface", "Formato invalido");
+        return;
+    }
+
+    char *endptr;
+    unsigned long index = strtoul(token, &endptr, 10);
+
+    // El token debe ser completamente numérico
+    if(*endptr != '\0'){
+        ESP_LOGE("userInterface", "Formato invalido");
+        return;
+    }
+
+    token = strtok(NULL, ",");
+
+    if(token == NULL){
+        ESP_LOGE("userInterface", "Formato invalido");
+        return;
+    }
+
+    unsigned long value = strtoul(token, &endptr, 10);
+
+    // El segundo token también debe ser completamente numérico
+    if(*endptr != '\0'){
+        ESP_LOGE("userInterface", "Formato invalido");
+        return;
+    }
+
+    // No debe existir un tercer parámetro
+    if(strtok(NULL, ",") != NULL){
+        ESP_LOGE("userInterface", "Formato invalido");
+        return;
+    }
+
+    // Validar valores
+    if(index < 4 && (value == 0 || value == 1)){
+        switch(index){
+            case 0:{
+                write_register(DO_1_FORCED_STATE, value);
+                write_register(FORCE_OUTPUTS, 1);         
+            }break;
+            case 1:{
+                write_register(DO_2_FORCED_STATE, value);
+                write_register(FORCE_OUTPUTS, 1);         
+            }break;
+            case 2:{
+                write_register(DO_3_FORCED_STATE, value);
+                write_register(FORCE_OUTPUTS, 1);         
+            }break;
+            case 3:{
+                write_register(DO_4_FORCED_STATE, value);
+                write_register(FORCE_OUTPUTS, 1);         
+            }break;
+        }
+    }
+    else{
+        ESP_LOGE("userInterface",
+                 "Valores invalidos: index=%lu, value=%lu",
+                 index, value);
+    }
+}
 
 
 
@@ -240,6 +319,10 @@ static void onEnterNode(MenuNode* n) {
             printDataNames();
        }break;
 
+       case 21:{
+            printDigiatlOutputsNames();
+       }break;
+
 
         default:
             break;
@@ -253,7 +336,9 @@ static void onEnterNode(MenuNode* n) {
 
         switch (n->id) {
             //case xx:  ESP_LOGI("userInterface", "Ingrese SSID y presione 'ENTER' para confirmar"); break;
-            case 12: ESP_LOGI("userInterface", "Introdcuti <Y> para activar y <N> para desactivar el modo debug 0");break;
+            case 12: ESP_LOGI("userInterface", "Introducir <Y> para activar y <N> para desactivar el modo debug 0");break;
+            case 21: ESP_LOGI("userInterface", "Introducir <index> , <value> para forzar una salida. Presionar <N> para desforzar las salidas");break;
+
             default: break;
         }
     }
@@ -273,6 +358,10 @@ static void onUpdateNode(MenuNode* n) {
                 printDataValues();
         }break;
 
+        case 21:{
+                printDigiatlOutputsValue();
+        }break;
+
 
         default:
             // Otros menús no se refrescan constantemente
@@ -287,8 +376,8 @@ static bool nodeRequiresInput(int id) {
 
         case 12://Menu debug 0
         case 13://Menu debug 1
-
-        return true;
+        case 21://Menu de forzar salida digitales
+        return true ;
       
         default:
             return false;
@@ -309,7 +398,8 @@ void printDataNames(void)
     moveCursor(i++, 1);
     writeSerialCom("TAGS_TASK_STATE");
 
-    moveCursor(i++, 1); writeSerialCom("TAGS_BUSCANDO_SD");    
+    moveCursor(i++, 1); 
+    writeSerialCom("TAGS_BUSCANDO_SD");    
 
     moveCursor(i++, 1);
     writeSerialCom("SERIAL_TASK_STATE");
@@ -335,17 +425,30 @@ void printDataNames(void)
     moveCursor(i++, 1);
     writeSerialCom("DI_1_STATE");
 
+    moveCursor(i++, 1);
+    writeSerialCom("DI_2_STATE");
+
     moveCursor(i++, 1); 
     writeSerialCom("DIGITAL_OUTPUTS_STATE");  
 
     moveCursor(i++, 1); 
     writeSerialCom("DO_1_STATE");           
 
+    moveCursor(i++, 1); 
+    writeSerialCom("DO_2_STATE");   
+
+    moveCursor(i++, 1); 
+    writeSerialCom("DO_3_STATE-Rele");
+
+    moveCursor(i++, 1); 
+    writeSerialCom("DO_4_STATE-Rele");   
+
     moveCursor(i++, 1);
     writeSerialCom("TRAMBUS_DETECTADO");
 
     moveCursor(i++, 1); 
     writeSerialCom("TRAMBUS_COUNTER");        
+
     moveCursor(i++, 1); 
     writeSerialCom("CAR_COUNTER");         
 
@@ -412,11 +515,27 @@ void printDataValues(void)
     writeSerialComln(buffer);
 
     moveCursor(i++, 35);
+    snprintf(buffer, sizeof(buffer), "%u", read_register(DI_2_STATE));
+    writeSerialComln(buffer);
+
+    moveCursor(i++, 35);
     snprintf(buffer, sizeof(buffer), "%u", read_register(DIGITAL_OUTPUTS_STATE)); 
     writeSerialCom(buffer);
 
     moveCursor(i++, 35);
     snprintf(buffer, sizeof(buffer), "%u", read_register(DO_1_STATE));           
+    writeSerialCom(buffer);
+
+    moveCursor(i++, 35);
+    snprintf(buffer, sizeof(buffer), "%u", read_register(DO_2_STATE));           
+    writeSerialCom(buffer);
+
+    moveCursor(i++, 35);
+    snprintf(buffer, sizeof(buffer), "%u", read_register(DO_3_STATE));           
+    writeSerialCom(buffer);
+
+    moveCursor(i++, 35);
+    snprintf(buffer, sizeof(buffer), "%u", read_register(DO_4_STATE));           
     writeSerialCom(buffer);
 
     moveCursor(i++, 35);
@@ -445,3 +564,59 @@ void moveCursor(int row, int col) {
 }
 
 
+
+
+void printDigiatlOutputsNames(){
+
+    
+    int i=1;
+    moveCursor(i++, 1);
+    writeSerialCom("Salida digital 1 - (Rele antena) ");
+
+    moveCursor(i++, 1);
+    writeSerialCom("Salida digital 2");
+
+    moveCursor(i++, 1);
+    writeSerialCom("Salida digital 3");
+
+    moveCursor(i++, 1);
+    writeSerialComln("Salida digital 4");
+
+}
+
+void printDigiatlOutputsValue(){
+
+    char buffer[20];
+    int i=1;
+ 
+    writeSerialCom("\033[s");   // guarda posición actual de la terminal (donde estaba el log normal)
+
+    moveCursor(i++, 35);
+    snprintf(buffer, sizeof(buffer), "%s",
+            read_register(FORCE_OUTPUTS) ? 
+            (read_register(DO_1_FORCED_STATE) ? "1" : "0") : "-");
+    writeSerialCom(buffer);
+
+    moveCursor(i++, 35);
+    snprintf(buffer, sizeof(buffer), "%s",
+            read_register(FORCE_OUTPUTS) ? 
+            (read_register(DO_2_FORCED_STATE) ? "1" : "0") : "-");
+    writeSerialCom(buffer);
+
+    moveCursor(i++, 35);
+    snprintf(buffer, sizeof(buffer), "%s",
+            read_register(FORCE_OUTPUTS) ? 
+            (read_register(DO_3_FORCED_STATE) ? "1" : "0") : "-");
+    writeSerialCom(buffer);
+
+    moveCursor(i++, 35);
+    snprintf(buffer, sizeof(buffer), "%s",
+            read_register(FORCE_OUTPUTS) ? 
+            (read_register(DO_4_FORCED_STATE) ? "1" : "0") : "-");
+    writeSerialCom(buffer);
+
+    writeSerialCom("\033[u");   // restaura posición: el próximo mensaje de otro módulo continúa ahí
+
+
+
+}
