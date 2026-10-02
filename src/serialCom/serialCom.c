@@ -1,13 +1,7 @@
 
 #include "serialCom.h"
 
-#include <stdio.h>
-#include <string.h>
-#include <errno.h>
-#include <stdarg.h>
-#include "driver/uart.h"
-#include "esp_log.h"
-#include "esp_err.h" 
+
 uart_config_t uart_config1;
 
 bool consolaIniciada=false;

@@ -4,6 +4,11 @@
 #ifndef MENUTREE_H
 #define MENUTREE_H
 
+#include <stdlib.h>
+#include <string.h>
+#include  <stdbool.h>
+
+
 #include "../serialCom/serialCom.h"
 
 

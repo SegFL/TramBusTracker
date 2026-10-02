@@ -5,9 +5,20 @@
 #ifndef SERIAL_COM_H
 #define SERIAL_COM_H
 
+#include <stdio.h>
+#include <string.h>
+#include <errno.h>
+#include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
+
+#include "driver/uart.h"
+#include "esp_log.h"
 #include "esp_err.h" 
+#include "esp_err.h" 
+
+
+
 #ifdef __cplusplus
 extern "C" {
 #endif

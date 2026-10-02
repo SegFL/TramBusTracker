@@ -33,6 +33,19 @@ Para agregar un nuevo comando
 #include "../menuTree/menuTree.h"
 #include "../serialCom/serialCom.h"
 
+#include <ctype.h>
+#include <string.h>
+
+#include "esp_wifi.h"
+#include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
+
+#include "../menuTree/menuTree.h"
+#include "../sd_card/sd_card.h"
+#include "../dataStruct/dataStruct.h"
+
 
 bool userInterfaceInit();
 void userInterfaceUpdate();

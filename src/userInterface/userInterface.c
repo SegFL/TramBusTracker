@@ -1,15 +1,6 @@
 
-
-#include <ctype.h>
-#include "esp_wifi.h"
-#include <string.h>
 #include "userInterface.h"
-#include "../menuTree/menuTree.h"
-#include "esp_log.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "../sd_card/sd_card.h"
-#include "../dataStruct/dataStruct.h"
+
 
 
 #define MAX_DATA_BUFFER 30
@@ -428,6 +419,9 @@ void printDataNames(void)
     moveCursor(i++, 1);
     writeSerialCom("DI_2_STATE");
 
+    moveCursor(i++, 1);
+    writeSerialCom("DI_CARD_DETECT");
+
     moveCursor(i++, 1); 
     writeSerialCom("DIGITAL_OUTPUTS_STATE");  
 
@@ -519,6 +513,10 @@ void printDataValues(void)
     writeSerialComln(buffer);
 
     moveCursor(i++, 35);
+    snprintf(buffer, sizeof(buffer), "%u", read_register(DI_CARD_DETECT));
+    writeSerialComln(buffer);
+
+    moveCursor(i++, 35);
     snprintf(buffer, sizeof(buffer), "%u", read_register(DIGITAL_OUTPUTS_STATE)); 
     writeSerialCom(buffer);
 
@@ -571,16 +569,16 @@ void printDigiatlOutputsNames(){
     
     int i=1;
     moveCursor(i++, 1);
-    writeSerialCom("Salida digital 1 - (Rele antena) ");
+    writeSerialCom("Salida digital 1");
 
     moveCursor(i++, 1);
     writeSerialCom("Salida digital 2");
 
     moveCursor(i++, 1);
-    writeSerialCom("Salida digital 3");
+    writeSerialCom("Salida digital 3 (Rele) ");
 
     moveCursor(i++, 1);
-    writeSerialComln("Salida digital 4");
+    writeSerialComln("Salida digital 4 (Rele)");
 
 }
 

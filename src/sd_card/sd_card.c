@@ -10,19 +10,7 @@
 #include <dirent.h>
 
 #include "sd_card.h"
-#include "esp_log.h"
-#include "esp_vfs_fat.h"
-#include "driver/sdspi_host.h"
-#include "driver/spi_common.h"
-#include "sdmmc_cmd.h"
-#include "../serialCom/serialCom.h"
-#include "../dataStruct/dataStruct.h"
-#include "esp_timer.h"
-#include  "../defines.h"
-#include "esp_vfs_fat.h"
-#include "driver/sdspi_host.h"
-#include "driver/spi_master.h"
-#include "driver/gpio.h"
+
 
 
 static const char *TAG = "SD_CARD";
@@ -151,8 +139,14 @@ esp_err_t sd_card_init(void) {
     }
 
     // 4. Montar sistema de archivos
+    //Apago el log de errores para esta funcion porque
+    //como uso el pin de WP como solo entrada y el driver busca inicilizar 
+    // el pullup en ese pin(cosa que no tiene) tira un mensaje de error del driver del gpio
+    esp_log_level_set("gpio", ESP_LOG_NONE);
+    esp_log_level_set("sdspi_transaction", ESP_LOG_NONE);
     ret = esp_vfs_fat_sdspi_mount(MOUNT_POINT, &host, &slot_config, &mount_config, &s_card);
-
+    esp_log_level_set("sdspi_transaction", ESP_LOG_WARN);
+    esp_log_level_set("gpio", ESP_LOG_ERROR);  
     if (ret != ESP_OK) {
         if (s_card != NULL) {
             esp_vfs_fat_sdcard_unmount(MOUNT_POINT, s_card);
@@ -204,7 +198,7 @@ bool readTAGFile(const char * name_file){
         return false;
     }
 
-    if(read_register(SD_STATE)){ESP_LOGI(TAG, "Abriendo archivo: %s", rutaCompleta);}
+    if(read_register(FLAG_DEBUG_0)!=0){ESP_LOGI(TAG, "Abriendo archivo: %s", rutaCompleta);}
 
 #ifdef LEER_ARCHIVO_RAM
     leer_archivo_ram(f);
@@ -238,6 +232,7 @@ void leer_archivo_ram(FILE* file){
     if (file == NULL) return;
     if(read_register(SD_STATE)!=0){
         if(read_register(FLAG_DEBUG_0)!=0)ESP_LOGE(TAG, "Error al leer el archivo en RAM, SD no inicilizada correctamente");
+        return;
     }
     char linea[MAX_TAG_LENGTH];
     total_lineas_ram = 0;
@@ -260,7 +255,6 @@ void leer_archivo_ram(FILE* file){
 
     if(read_register(FLAG_DEBUG_0)!=0){
         ESP_LOGI("PERF", "Tiempo de carga desde SD a RAM: %lld us (%u lineas)", (t_end - t_start), total_lineas_ram);
-        ESP_LOGE(TAG, "Error al buscar TAG, SD no inicilizada correctamente");
         for (uint16_t i = 0; i < total_lineas_ram; i++) {
             ESP_LOGI("TAG_RAM", "[%u] %s", i + 1, buffer[i]);
         }

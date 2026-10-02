@@ -16,8 +16,9 @@
 #include "src/ledsDriver/ledsDriver.h"
 #include "src/digitalOutputs/digitalOutputs.h"
 #include "src/auxFunc/auxFunc.h"
-#define MAX_UART_BUFFER_SIZE 64         //Cantidad de bytes que lee la UART antena cada vez
 
+
+#define MAX_UART_BUFFER_SIZE 64         //Cantidad de bytes que lee la UART antena cada vez
 
 //Secuencia de debug 
 #define ESC_CHAR       0x1B
@@ -25,14 +26,11 @@
 #define ESC_TIMEOUT_US (2000 * 1000) // 2 segundos
 bool debugConsoleEnabled=false; 
 
-void initUartAntena();
-void initUartBridge();
-void timer_callback(void *arg);
 
 
-
-
-
+/*
+----------------------------Variables
+*/
 
 typedef enum : uint8_t {
     MSG_TYPE_TAG_NUEVO = 0x01,
@@ -49,6 +47,41 @@ typedef struct {
 QueueHandle_t xQueueMsg=NULL;
 static uint16_t contador_TAGS_validos=0;
 
+
+
+/*
+----------------------------Tareas
+*/
+void serialTask();
+void TAGTask();
+void TAGFileTask(void* pvParameters);
+void userTask(void* pvParameters);
+void digitalInputsTask(void* pvParameters);
+void digitalOutputsTask(void* pvParameters);
+void IOTask(void* pvParameters);
+void ledsDriverTask(void*pvParameters);
+
+
+/*
+---------------------------Funciones privadas 
+*/
+
+void initUartAntena();
+void initUartBridge();
+void timer_callback(void *arg);
+
+bool checksum(uint8_t *datos, size_t len);
+bool validarFormatoTrama(PaqueteMensaje_t* txPacket);
+bool configurarAntena();
+bool TAGInit();
+bool debugSequence();
+void sendAck();
+void sendNack();
+
+
+
+
+
 esp_timer_handle_t timed_oneshot_timer;
 esp_timer_create_args_t timed_oneshot_timer_args = {
     .callback = &timer_callback,
@@ -57,23 +90,9 @@ esp_timer_create_args_t timed_oneshot_timer_args = {
 };
 
 
-void serialTask();
-void TAGTask();
 
-void TAGFileTask(void* pvParameters);
-void userTask(void* pvParameters);
-void digitalInputsTask(void* pvParameters);
-void digitalOutputsTask(void* pvParameters);
-void IOTask(void* pvParameters);
-void ledsDriverTask(void*pvParameters);
-//Funciones privadas 
-bool checksum(uint8_t *datos, size_t len);
-bool validarFormatoTrama(PaqueteMensaje_t* txPacket);
-bool configurarAntena();
-bool TAGInit();
-bool debugSequence();
-void sendAck();
-void sendNack();
+
+
 void app_main() {
 
     //Cambia el nivel de detalle de los mensajes impresos por la consola
@@ -84,17 +103,17 @@ void app_main() {
 
         debugConsoleEnabled=true;
         write_register(FLAG_DEBUG_0,1);
+        
+        //esp_log_level_set("*", CONFIG_LOG_MAXIMUM_LEVEL_DEBUG);
+
         esp_log_level_set("*", ESP_LOG_VERBOSE);
 
     }
 
-        
-
-
-
-
-
     ESP_LOGI("FIRMWARE", "Firmware version: %s", FIRMWARE_VERSION);
+    //Primero necestio los pine sdigital habilitados porque los uso para ver si inicilizo la sd card o no
+
+    xTaskCreate(digitalInputsTask,"digitalTask",2*1024,NULL,1,NULL);
 
     // 1. Crear la cola con espacio para 10 paquetes
     xQueueMsg = xQueueCreate(10, sizeof(PaqueteMensaje_t));
@@ -109,13 +128,13 @@ void app_main() {
         write_register(TAGS_TASK_STATE,1);
         ESP_LOGE("MAIN", "Error al crear la cola de mensajes entre SerialTask y TAGTask.");
     }
+    vTaskDelay(pdMS_TO_TICKS(100));
 
     xTaskCreate(TAGFileTask,"TAGFileTask",2*8192,NULL,1,NULL);
-    xTaskCreate(digitalInputsTask,"digitalTask",2*1024,NULL,1,NULL);
+
     xTaskCreate(digitalOutputsTask,"DOTask",1024,NULL,1,NULL);
     //Pongo un delay para evitar que se impriman mensajes del 
     //menu antes de que se terminene de inicializar el resto de las tareas
-    vTaskDelay(pdMS_TO_TICKS(100));
     xTaskCreate(ledsDriverTask,"userTask",2*2048,NULL,3,NULL);
     if(debugConsoleEnabled==true)
         xTaskCreate(userTask,"userTask",2*2048,NULL,3,NULL);
@@ -137,9 +156,34 @@ void app_main() {
 
 void TAGFileTask(void* pvParameters){
 
-
-
     write_register(SD_STATE,1);
+
+    bool sd_in=false;
+
+    while(1){
+        
+        switch(read_register(DI_CARD_DETECT)){
+
+            //SD detectada
+            case CARD_DETECTED:{
+                if(read_register(SD_STATE)==1){
+                    if(TAGInit()==true){
+                        //Los registros se actualizan dentro de la funcion TAGInit
+                        sd_in=true;
+                    }
+                }
+            }break;
+
+            case !CARD_DETECTED:{
+                sd_in=false;
+                write_register(SD_STATE,1);
+                write_register(SD_FILE,1);
+            }break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(3000));
+
+    }
+/*
 
     //Intento inicializar la SD, si falla se queda intentnado en un bucle infinito
     while(1){
@@ -150,12 +194,13 @@ void TAGFileTask(void* pvParameters){
             ESP_LOGE("MAIN", "Error al inicializar la SD. Reintentando en 3s...");
         }      
         vTaskDelay(pdMS_TO_TICKS(3000));
-        
     }
+
+ 
+
 
 
     
-
 
 
     while(1){
@@ -172,12 +217,15 @@ void TAGFileTask(void* pvParameters){
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
 
+*/
 }
 bool TAGInit(){
     bool sd = false, file = false;
 
     if(sd_card_init() == 0) {
         sd = true;
+        write_register(SD_STATE, STATE_OK);
+
     }
 
     if(sd == true){
@@ -282,7 +330,11 @@ void TAGTask(void *pvParameters) {
 
     ESP_ERROR_CHECK(esp_timer_create(&timed_oneshot_timer_args, &timed_oneshot_timer));
 
+
     for (;;) {
+
+            for (;;) {vTaskDelay(pdMS_TO_TICKS(100));}
+
         if (xQueueReceive(xQueueMsg, &rxPacket, portMAX_DELAY) == pdPASS) {
             rxPacket.datos[SIZE_PAYLOAD - 1] = '\0';
             if(read_register(FLAG_DEBUG_0)!=0)
@@ -290,15 +342,13 @@ void TAGTask(void *pvParameters) {
 
             if (buscarTAG((const char *)rxPacket.datos)) {
 
-                unsigned short c=read_register(TRAMBUS_COUNTER);
-                c++;
-                write_register(TRAMBUS_COUNTER,c);
+                write_register(TRAMBUS_COUNTER, read_register(TRAMBUS_COUNTER) + 1);
                 if (esp_timer_is_active(timed_oneshot_timer)!=0) {
                     contador_TAGS_validos++;
                 } else {
                     contador_TAGS_validos = 1;
 
-                    write_register(DO_1_STATE,1);
+                    write_register(DO_3_STATE,1);
                     write_register(TRAMBUS_DETECTADO,1);
                     ESP_ERROR_CHECK(
                         esp_timer_start_once(
@@ -338,7 +388,7 @@ void initUartAntena(){
     };
     uart_param_config(UART_ANTENA, &uart_config2);
 
-    // ** ASIGNAR LOS PINES 16/17 **
+    // ** ASIGNAR LOS PINES DEFINIDOS EN DEFINES.H **
     uart_set_pin(
         UART_ANTENA,
         UART_ANTENA_TX,     //TX

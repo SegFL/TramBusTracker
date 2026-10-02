@@ -2,7 +2,7 @@
 //Este driver deberia encargarse de leer dataStruct
 // y decidir que led hacer titilar y a que velocidad
 #include "ledsDriver.h"
-#include "esp_log.h"
+
 #define cantidadleds 2
 #define PERIODO_BASE_LEDS 20
 
@@ -28,12 +28,19 @@ static int register_ [cantidadleds];
 bool ledsDriverInit(){
 
 
+    //El led de RUN se actualiza de form
+    gpio_reset_pin(LED_RUN);
+    gpio_set_direction(LED_RUN, GPIO_MODE_OUTPUT);
+    gpio_set_level(LED_RUN, 1);
+
+
+
     //Asocio los registros de la estructura de datos a cada pin
     register_[0]=LED_SD_STATE;
     register_[1]=LED_TAG_STATE;
     gpio_reset_pin(register_[0]);
     gpio_set_direction(register_[0], GPIO_MODE_OUTPUT);
-    gpio_set_level(register_[0],0);
+    gpio_set_level(register_[0],1);
 
     leds[0].led_value = false;
     leds[0].titilante_flag = false;
@@ -44,7 +51,7 @@ bool ledsDriverInit(){
     //Led de TAG
     gpio_reset_pin(register_[1]);
     gpio_set_direction(register_[1], GPIO_MODE_OUTPUT);
-    gpio_set_level(register_[1],0);
+    gpio_set_level(register_[1],1);
 
     leds[1].led_value = false;
     leds[1].titilante_flag = false;
@@ -78,8 +85,11 @@ unsigned char ledsDriverUpdate(){
 
         }
 
-        gpio_set_level(register_[i],leds[i].led_value);
+        gpio_set_level(register_[i],!leds[i].led_value);
     }
+    //El led de run se actualiza aparte
+    gpio_set_level(LED_RUN,read_register(LEDRUN_STATE));
+
 
     
 

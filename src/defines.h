@@ -1,7 +1,7 @@
 
 #define FIRMWARE_VERSION "0.0.0"
 
-//#define LEER_ARCHIVO_RAM
+#define LEER_ARCHIVO_RAM
 
 
 
@@ -18,37 +18,41 @@
 
 
 //Salidas de demanda
-#define DO_1 GPIO_NUM_18
+#define DO_1 GPIO_NUM_19
+#define DO_2 GPIO_NUM_18
+//Reles
+#define DO_3 GPIO_NUM_26
+#define DO_4 GPIO_NUM_27
 
 //Led Buil-In
 #define LED_RUN GPIO_NUM_2   
 //Led de estados
-#define LED_SD_STATE GPIO_NUM_19    //Titila si falla la SD 
+#define LED_SD_STATE GPIO_NUM_4    //Titila si falla la SD 
 #define LED_SD_BASE_PERIOD 20       //Titila mas rapido si el archivo .txt esta mal
 
 #define LED_TAG_STATE GPIO_NUM_21   //Led para saber cuando se esta buscando un TAG en la SD
 #define LED_TAG_BASE_PERIOD 1
 
 //SPI Pins para la SD
-#define PIN_NUM_MISO 14
-#define PIN_NUM_MOSI 13
-#define PIN_NUM_CLK  27
-#define PIN_NUM_CS   26
+#define PIN_NUM_MISO 32//14
+#define PIN_NUM_MOSI 25//13
+#define PIN_NUM_CLK  33//27
+#define PIN_NUM_CS   14     //26
 #define PIN_NUM_DETECT 35   //Card detect
 #define PIN_NUM_NWP 34      //Write protect
 
 //Pines para la UART de la antena correspondientes a la UART_ANTENA
 //ATENCION: NO USAR UART0 (CONSOLA DE DEBUG)
 #define UART_ANTENA UART_NUM_2
-#define UART_ANTENA_TX  16
-#define UART_ANTENA_RX  17
+#define UART_ANTENA_TX  23          //16
+#define UART_ANTENA_RX  22          //17
 #define UART_ANTENA_BAUD 9600
 #define UART_ANTENA_BUFFER 2048
 
 //Bridge ANTENA-DB9(232)
 #define UART_BRIDGE UART_NUM_1
-#define UART_BRIDGE_TX  23
-#define UART_BRIDGE_RX  22
+#define UART_BRIDGE_TX  17
+#define UART_BRIDGE_RX  16
 #define UART_BRIDGE_BAUD 9600
 #define UART_BRIDGE_BUFFER 2048
 
@@ -60,7 +64,7 @@
 
 //Caracter inicial para considerar una trama TAG valida
 #define START_CHARACTER '#'
-//#define CHECKSUM_DISABLED    
+//#define CHECKSUM_DISABLED    //Considero todos los checksums validos
 #define ACK_NACK_ENABLED
 #define NACK_SEQUENCE "?"
 #define ACK_SEQUENCE "@"
@@ -69,3 +73,10 @@
 //Si el sensor inductivo se activa automaticamente se activa el rele(DO) 
 //para encender la antena.
 //#define BYPASS_TAG_FILTER
+
+
+
+//Secuencia de debug 
+#define ESC_CHAR       0x1B
+#define ESC_REQUIRED   3
+#define ESC_TIMEOUT_US (2000 * 1000) // 2 segundos

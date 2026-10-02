@@ -2,11 +2,6 @@
 
 
 #include "digitalInputs.h"
-#include "driver/gpio.h"
-#include "../defines.h"
-#include "esp_log.h"
-
-#include "../dataStruct/dataStruct.h"
 
 
 
@@ -49,6 +44,31 @@ void digitalInputsInit(){
     }
 
 
+
+        // Definir las máscaras de pines para las entradas digitales
+    uint64_t input_pins_mask_sd = (1ULL << PIN_NUM_DETECT); ;
+
+    // Configuración de GPIO
+    gpio_config_t io_conf_sd = {};
+    io_conf_sd.pin_bit_mask = input_pins_mask_sd;   // Establecer el pin de detección de SD
+    io_conf_sd.mode = GPIO_MODE_INPUT;              // Modo de entrada digital
+    io_conf_sd.pull_up_en = GPIO_PULLUP_DISABLE;    // Deshabilitar resistencia pull-up
+    io_conf_sd.pull_down_en = GPIO_PULLDOWN_DISABLE; // Deshabilitar resistencia pull-down
+    io_conf_sd.intr_type = GPIO_INTR_DISABLE;        // Deshabilitar interrupciones (si no se necesitan)
+
+    // Configurar GPIO
+    if(gpio_config(&io_conf_sd)!=ESP_OK){
+        write_register(DIGITAL_INPUTS_STATE,1);
+        ESP_LOGE("DigitalInputsInit", "Error al inicilizar las entradas digitales de la SD");
+    }
+
+
+
+
+
+
+
+
     //Leo las entradas y actulizo la estructura general de datos
     scanInputs();
 
@@ -67,6 +87,9 @@ unsigned char digitalInputsUpdate(){
 
 void scanInputs(){
     //Leo las entradas y actulizo el historial
+
+
+
 
     //Leo la entrada digital y guardo el valor. 
     //ATENCION: como la entrada se activa se activa con 0(pullup) el valor guardado esta negado --? 1 : 0--
@@ -93,6 +116,13 @@ void scanInputs(){
 
         write_register(DI_2_STATE,1);
     }
+
+    bool card_present = (gpio_get_level(PIN_NUM_DETECT) == 0);
+    write_register(DI_CARD_DETECT, card_present ? CARD_DETECTED : 0);
+
+    //Las entradas deigitales de la sd(para detectar si hay o no, no las filtro)
+
+
 
 }
 

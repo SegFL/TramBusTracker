@@ -4,8 +4,30 @@
 #ifndef SD_CARD_H
 #define SD_CARD_H
 
-#include "esp_err.h"
+
 #include <stdbool.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/types.h>
+#include <dirent.h>
+
+#include "esp_vfs_fat.h"
+#include "driver/sdspi_host.h"
+#include "driver/spi_master.h"
+#include "driver/gpio.h"
+#include "esp_err.h"
+#include "esp_log.h"
+#include "esp_vfs_fat.h"
+#include "driver/sdspi_host.h"
+#include "driver/spi_common.h"
+#include "sdmmc_cmd.h"
+#include "esp_timer.h"
+
+
+#include "../serialCom/serialCom.h"
+#include "../dataStruct/dataStruct.h"
+#include  "../defines.h"
+
 // Definición de tus pines
 
 

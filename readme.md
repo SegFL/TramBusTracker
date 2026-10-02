@@ -78,7 +78,7 @@ graph TD
     ID12["[ID 12] INFO LEVEL 1<br/>(Tecla '1') [Input: SÍ (Y/N)]"]
     ID13["[ID 13] dataStruct<br/>(Tecla '2') [Input: SÍ (Y/N)]"]
     
-    ID21["[ID 21] Fozar salidas<br/>(Tecla '1') [Input: SÍ (&lt;idx&gt;,&lt;val&gt; o N)]"]
+    ID21["[ID 21] Fozar salidas<br/>(Tecla '1') [Input: SÍ (< index,state >o N)]"]
 
     ID0 -->|Tecla '1'| ID1
     ID0 -->|Tecla '2'| ID2
