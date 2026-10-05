@@ -374,9 +374,31 @@ static bool nodeRequiresInput(int id) {
             return false;
     }
 }
+
+void moveCursor(int row, int col) {
+    char buffer[10];
+    snprintf(buffer, sizeof(buffer), "\033[%d;%dH", row, col);
+    writeSerialCom(buffer);
+
+}
+
+
+
+/*
+ * Layout (las dos funciones deben mantenerse sincronizadas en filas):
+ *   - Titulo de grupo ocupa 1 fila
+ *   - Linea en blanco entre grupos (1 fila)
+ *   - Cada variable ocupa 1 fila
+ */
+
 void printDataNames(void)
 {
     int i=1;
+
+    /* ---------------- GENERAL ---------------- */
+    moveCursor(i++, 1);
+    writeSerialCom("--- GENERAL ---------------------------------");
+
     moveCursor(i++, 1);
     writeSerialCom("LEDRUN_STATE");
 
@@ -385,6 +407,11 @@ void printDataNames(void)
 
     moveCursor(i++, 1);
     writeSerialCom("FLAG_DEBUG_1");
+
+    /* ---------------- TAGS / ANTENA ---------------- */
+    i++;    // linea en blanco
+    moveCursor(i++, 1);
+    writeSerialCom("--- TAGS / ANTENA ---------------------------");
 
     moveCursor(i++, 1);
     writeSerialCom("TAGS_TASK_STATE");
@@ -398,8 +425,21 @@ void printDataNames(void)
     moveCursor(i++, 1);
     writeSerialCom("ANTENA_CONFIG_STATE");
 
+    /* ---------------- PERIFERICOS ---------------- */
+    i++;    // linea en blanco
+    moveCursor(i++, 1);
+    writeSerialCom("--- PERIFERICOS -----------------------------");
+
     moveCursor(i++, 1);
     writeSerialCom("LEDS_DRIVER_STATE");
+
+    moveCursor(i++, 1);
+    writeSerialCom("USER_INTERFACE_STATE");
+
+    /* ---------------- SD ---------------- */
+    i++;    // linea en blanco
+    moveCursor(i++, 1);
+    writeSerialCom("--- SD --------------------------------------");
 
     moveCursor(i++, 1);
     writeSerialCom("SD_STATE");
@@ -407,8 +447,10 @@ void printDataNames(void)
     moveCursor(i++, 1);
     writeSerialCom("SD_FILE");
 
+    /* ---------------- ENTRADAS DIGITALES ---------------- */
+    i++;    // linea en blanco
     moveCursor(i++, 1);
-    writeSerialCom("USER_INTERFACE_STATE");
+    writeSerialCom("--- ENTRADAS DIGITALES ----------------------");
 
     moveCursor(i++, 1);
     writeSerialCom("DIGITAL_INPUTS_STATE");
@@ -421,6 +463,11 @@ void printDataNames(void)
 
     moveCursor(i++, 1);
     writeSerialCom("DI_CARD_DETECT");
+
+    /* ---------------- SALIDAS DIGITALES ---------------- */
+    i++;    // linea en blanco
+    moveCursor(i++, 1);
+    writeSerialCom("--- SALIDAS DIGITALES -----------------------");
 
     moveCursor(i++, 1); 
     writeSerialCom("DIGITAL_OUTPUTS_STATE");  
@@ -437,6 +484,11 @@ void printDataNames(void)
     moveCursor(i++, 1); 
     writeSerialCom("DO_4_STATE-Rele");   
 
+    /* ---------------- TRAMBUS ---------------- */
+    i++;    // linea en blanco
+    moveCursor(i++, 1);
+    writeSerialCom("--- TRAMBUS ---------------------------------");
+
     moveCursor(i++, 1);
     writeSerialCom("TRAMBUS_DETECTADO");
 
@@ -446,7 +498,8 @@ void printDataNames(void)
     moveCursor(i++, 1); 
     writeSerialCom("CAR_COUNTER");         
 
-
+    moveCursor(i++, 1);
+    writeSerialCom("---------------------------------------------");
 }
 
 void printDataValues(void)
@@ -455,6 +508,9 @@ void printDataValues(void)
     int i=1;
  
     writeSerialCom("\033[s");   // guarda posición actual de la terminal (donde estaba el log normal)
+
+    /* ---------------- GENERAL ---------------- */
+    i++;    // fila del titulo
 
     moveCursor(i++, 35);
     snprintf(buffer, sizeof(buffer), "%u", read_register(LEDRUN_STATE));
@@ -467,6 +523,9 @@ void printDataValues(void)
     moveCursor(i++, 35);
     snprintf(buffer, sizeof(buffer), "%u", read_register(FLAG_DEBUG_1));
     writeSerialCom(buffer);
+
+    /* ---------------- TAGS / ANTENA ---------------- */
+    i += 2; // linea en blanco + fila del titulo
 
     moveCursor(i++, 35);
     snprintf(buffer, sizeof(buffer), "%u", read_register(TAGS_TASK_STATE));
@@ -484,9 +543,19 @@ void printDataValues(void)
     snprintf(buffer, sizeof(buffer), "%u", read_register(ANTENA_CONFIG_STATE));
     writeSerialCom(buffer);
 
+    /* ---------------- PERIFERICOS ---------------- */
+    i += 2; // linea en blanco + fila del titulo
+
     moveCursor(i++, 35);
     snprintf(buffer, sizeof(buffer), "%u", read_register(LEDS_DRIVER_STATE));
     writeSerialCom(buffer);
+
+    moveCursor(i++, 35);
+    snprintf(buffer, sizeof(buffer), "%u", read_register(USER_INTERFACE_STATE));
+    writeSerialCom(buffer);
+
+    /* ---------------- SD ---------------- */
+    i += 2; // linea en blanco + fila del titulo
 
     moveCursor(i++, 35);
     snprintf(buffer, sizeof(buffer), "%u", read_register(SD_STATE));
@@ -496,9 +565,8 @@ void printDataValues(void)
     snprintf(buffer, sizeof(buffer), "%u", read_register(SD_FILE));
     writeSerialCom(buffer);
 
-    moveCursor(i++, 35);
-    snprintf(buffer, sizeof(buffer), "%u", read_register(USER_INTERFACE_STATE));
-    writeSerialCom(buffer);
+    /* ---------------- ENTRADAS DIGITALES ---------------- */
+    i += 2; // linea en blanco + fila del titulo
 
     moveCursor(i++, 35);
     snprintf(buffer, sizeof(buffer), "%u", read_register(DIGITAL_INPUTS_STATE));
@@ -515,6 +583,9 @@ void printDataValues(void)
     moveCursor(i++, 35);
     snprintf(buffer, sizeof(buffer), "%u", read_register(DI_CARD_DETECT));
     writeSerialComln(buffer);
+
+    /* ---------------- SALIDAS DIGITALES ---------------- */
+    i += 2; // linea en blanco + fila del titulo
 
     moveCursor(i++, 35);
     snprintf(buffer, sizeof(buffer), "%u", read_register(DIGITAL_OUTPUTS_STATE)); 
@@ -536,6 +607,9 @@ void printDataValues(void)
     snprintf(buffer, sizeof(buffer), "%u", read_register(DO_4_STATE));           
     writeSerialCom(buffer);
 
+    /* ---------------- TRAMBUS ---------------- */
+    i += 2; // linea en blanco + fila del titulo
+
     moveCursor(i++, 35);
     snprintf(buffer, sizeof(buffer), "%u", read_register(TRAMBUS_DETECTADO));
     writeSerialComln(buffer);
@@ -549,17 +623,8 @@ void printDataValues(void)
     writeSerialCom(buffer);
 
     writeSerialCom("\033[u");   // restaura posición: el próximo mensaje de otro módulo continúa ahí
-
-
-
 }
 
-void moveCursor(int row, int col) {
-    char buffer[10];
-    snprintf(buffer, sizeof(buffer), "\033[%d;%dH", row, col);
-    writeSerialCom(buffer);
-
-}
 
 
 
