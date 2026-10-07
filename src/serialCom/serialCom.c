@@ -6,9 +6,6 @@ uart_config_t uart_config1;
 
 bool consolaIniciada=false;
 
-//Puerto UART para consola (logs, info, debug)
-#define UART_DEBUG UART_NUM_0
-
 
 void print(const char* str) ;
 

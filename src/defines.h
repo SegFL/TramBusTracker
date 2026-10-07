@@ -3,6 +3,9 @@
 
 #define LEER_ARCHIVO_RAM
 
+//Puerto UART para consola (logs, info, debug)
+#define UART_DEBUG UART_NUM_0
+
 
 
 #define TAG_FILE "TAG.TXT"      //Nombre del archivo de TAGs
@@ -60,19 +63,25 @@
 //Tiempo que titila el led de LED_TAG_STATE al haber buscado un tag en la SD
 #define T_OFF_REGISTER_LED_TAG 1000000
 
-
+#define T_DEMANDA_TRAMBUS_VALIDO 10000000     //En ms
 
 //Caracter inicial para considerar una trama TAG valida
 #define START_CHARACTER '#'
-//#define CHECKSUM_DISABLED    //Considero todos los checksums validos
-#define ACK_NACK_ENABLED
+//#define ACK_NACK_ENABLED
 #define NACK_SEQUENCE "?"
 #define ACK_SEQUENCE "@"
+
+#define CHAR_DELIMITER '&'   //Caracter que separa los datos de un TAG
+//Si el TAG tiene menos de BYTES_BEFORE_DELIMITTER caracteres los mensajes de error imprimen basura
+#define BYTES_BEFORE_DELIMITTER 12   //Caracteres a extraer antes del CHAR_DELIMITER. Por ejemplo si el TAG es #12345678&ABCDEF&1234567890& y BYTES_BEFORE_DELIMITTER=8, se extrae 12345678
+#define SALTEAR_0_INICIALES   //Si el TAG tiene 0s iniciales los ignora. Por ejemplo si el TAG es #000011223344&ABCDEF&1234567890& y SALTEAR_0_INICIALES esta definido, se extrae 11223344
 
 //Sirve para bypasear toda la logica de la SD y los TAGS
 //Si el sensor inductivo se activa automaticamente se activa el rele(DO) 
 //para encender la antena.
 //#define BYPASS_TAG_FILTER
+
+
 
 
 

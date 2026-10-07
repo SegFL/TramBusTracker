@@ -33,6 +33,8 @@ enum data {
     DO_2_FORCED_STATE,      //Hacia el controlador
     DO_3_FORCED_STATE,      //Rele
     DO_4_FORCED_STATE,      //Rele
+    MODO_INDUCTIVO_ENABLED, //1 activado, 0 desactivado
+    MODO_CRC_ENABLED,        //1 activado, 0 desactivado
     DIM_DATOS
 };
 

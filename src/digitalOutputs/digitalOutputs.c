@@ -48,8 +48,17 @@ void digitalOutputsUpdate(){
         }else{
             gpio_set_level(DO_1,!read_register(DO_1_STATE));
             gpio_set_level(DO_2,!read_register(DO_2_STATE));
-            gpio_set_level(DO_3,!read_register(DI_1_STATE));
-            gpio_set_level(DO_4,!read_register(DI_2_STATE));
+            if(read_register(MODO_INDUCTIVO_ENABLED)!=0){
+                gpio_set_level(DO_3,!read_register(DO_3_STATE));
+                gpio_set_level(DO_4,!read_register(DO_4_STATE));
+
+            }else{
+                //Dejo un rele prendido simepre y el otro apagado
+                gpio_set_level(DO_3,0);//Encendido
+                gpio_set_level(DO_4,1);//Apagado
+            }
+    
+
         }
     #endif
 }

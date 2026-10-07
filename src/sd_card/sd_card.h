@@ -39,4 +39,5 @@ void listarArchivosSD(void);
 bool obtenerNombrePorIndiceSD(int indiceDeseado, char* nombreSalida, size_t maxLen);
 bool readTAGFile(const char * name_file);
 bool buscarTAG(const char *tag_buscado);
+int buscarConfiguracion(const char *name_file, const char *config_buscada);
 #endif // SD_CARD_H

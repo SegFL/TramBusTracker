@@ -47,7 +47,10 @@ typedef struct {
 QueueHandle_t xQueueMsg=NULL;
 static uint16_t contador_TAGS_validos=0;
 
-
+typedef enum : uint8_t {
+    buscando = 0x01,
+    mensaje    = 0x02
+} state_uart;
 
 /*
 ----------------------------Tareas
@@ -60,7 +63,7 @@ void digitalInputsTask(void* pvParameters);
 void digitalOutputsTask(void* pvParameters);
 void IOTask(void* pvParameters);
 void ledsDriverTask(void*pvParameters);
-
+void transmitUartBridgeTASK(void* pvParameters);
 
 /*
 ---------------------------Funciones privadas 
@@ -75,11 +78,18 @@ bool validarFormatoTrama(PaqueteMensaje_t* txPacket);
 bool configurarAntena();
 bool TAGInit();
 bool debugSequence();
-void sendAck();
-void sendNack();
-
-
-
+void sendAck(uint8_t num_seq);
+void sendNack(uint8_t num_seq);
+bool procesarDatosTAG(const char *datos,
+                   char *TAGProcesado,
+                   size_t buffer_length,
+                   char delimiter,
+                   uint8_t num_bytes_to_extract);
+void cargarArchivoConfiguracion();
+void enviarTrama(const char *line);
+int myReadUart(uart_port_t uart_num, void* buf, uint32_t length, TickType_t ticks_to_wait);
+int buscarFinDeLinea(const uint8_t* data,int size);
+uint16_t extractMiCrc(uint8_t* rx_buffer,size_t size);
 
 
 esp_timer_handle_t timed_oneshot_timer;
@@ -115,6 +125,8 @@ void app_main() {
 
     xTaskCreate(digitalInputsTask,"digitalTask",2*1024,NULL,1,NULL);
 
+    xTaskCreate(transmitUartBridgeTASK,"BRIDGETASK",2048,NULL,1,NULL);
+
     // 1. Crear la cola con espacio para 10 paquetes
     xQueueMsg = xQueueCreate(10, sizeof(PaqueteMensaje_t));
 
@@ -131,6 +143,8 @@ void app_main() {
     vTaskDelay(pdMS_TO_TICKS(100));
 
     xTaskCreate(TAGFileTask,"TAGFileTask",2*8192,NULL,1,NULL);
+
+
 
     xTaskCreate(digitalOutputsTask,"DOTask",1024,NULL,1,NULL);
     //Pongo un delay para evitar que se impriman mensajes del 
@@ -166,11 +180,13 @@ void TAGFileTask(void* pvParameters){
 
             //SD detectada
             case CARD_DETECTED:{
-                if(read_register(SD_STATE)==1){
+                if(read_register(SD_STATE)!=STATE_OK){
                     if(TAGInit()==true){
                         //Los registros se actualizan dentro de la funcion TAGInit
                         sd_in=true;
                     }
+  
+
                 }
             }break;
 
@@ -178,9 +194,10 @@ void TAGFileTask(void* pvParameters){
                 sd_in=false;
                 write_register(SD_STATE,1);
                 write_register(SD_FILE,1);
+                write_register(MODO_INDUCTIVO_ENABLED,0);
             }break;
         }
-        vTaskDelay(pdMS_TO_TICKS(3000));
+        vTaskDelay(pdMS_TO_TICKS(10000));
 
     }
 /*
@@ -243,7 +260,12 @@ bool TAGInit(){
         write_register(SD_STATE, STATE_OK);
         if (read_register(FLAG_DEBUG_0) != 0) {
             ESP_LOGI("MAIN", "SD Inicializada correctamente.");
-        }      
+        }
+        
+
+        cargarArchivoConfiguracion();
+        
+
         return true;
     } else {
         write_register(SD_STATE, STATE_FAIL); 
@@ -257,29 +279,139 @@ void serialTask(void *pvParameters) {
 
     uint8_t line_buf[SIZE_PAYLOAD ]; 
     uint16_t line_len = 0;
-
     uint8_t rx_buffer[MAX_UART_BUFFER_SIZE];
-    //Buffer para el bridge ANTENA(422)-BRIDGE(232)
-    uint8_t rx_buffer_2[MAX_UART_BUFFER_SIZE];
+    uint8_t byte_recibido = 0;
+    uint8_t aux=0;
+    bool reciviendo_datos=false;
+    bool carrier_return_received=false;
+    int len = 0;
 
-    initUartAntena();
-    initUartBridge();
-    for (;;) {
-        int len = uart_read_bytes(UART_ANTENA,rx_buffer,sizeof(rx_buffer),pdMS_TO_TICKS(10));
-        //Retransmito todo tal cual me llega a la uart bridge
-        if(len>0)uart_write_bytes(UART_BRIDGE, (const char *) rx_buffer, len);
-        //Todo lo que llega de la UART_BRIDGE lo restrasnmito tal cual a la UART_ANTENA
-        int len2 = uart_read_bytes(UART_BRIDGE,rx_buffer_2,sizeof(rx_buffer_2),0);
-        if(len2>0)uart_write_bytes(UART_ANTENA,(const char *)rx_buffer_2,len2);
+    state_uart estado = buscando;
+    
+
+
+    for(;;){
+        switch(estado){
+
+            case buscando:{
+
+                //Los ticks son cada 10ms en general, si poner un valor menor redondea a 0 y bloquea la tarea indefinidamente(WT)
+                len = myReadUart(UART_ANTENA,rx_buffer,1,10);
+                if(len==1 && rx_buffer[0]==START_CHARACTER){
+                    estado = mensaje;
+                    ESP_LOGI("DEBUG:","Recibiendo mensaje");
+                }
+                
+
+                    
+            }break;
+
+            case mensaje:{
+                len = myReadUart(UART_ANTENA,rx_buffer,MAX_UART_BUFFER_SIZE,120);
+                if(len>0){
+                    ESP_LOGI("DEBUG","len : %lu",len);
+
+                    int size = buscarFinDeLinea(rx_buffer,len);
+                    ESP_LOGI("DEBUG","Busque fi de linea: %lu",size);
+                    if(size>4){
+
+
+                        ESP_LOGI("ss","Enocntre fin de linea en %i",size);
+                        //extraer crc y pisar con un /0
+                        uint16_t mycrc = extractMiCrc(rx_buffer,size);
+                        aux=rx_buffer[size-4];
+                        rx_buffer[size-4]=0;
+                        ESP_LOGI("UART","Cadena recivida : %s",rx_buffer);
+                        uint16_t crc = calccrc(rx_buffer);
+                        rx_buffer[size-4]=aux;
+
+                        
+                        if(read_register(MODO_CRC_ENABLED)==0){
+                            enviarTrama(rx_buffer);
+
+                        }else if(crc == mycrc){
+                            //Envio numero de secuencia
+                            sendAck(rx_buffer[0]);
+                            enviarTrama(rx_buffer);
+
+                        }else{
+                            sendNack(rx_buffer[0]);
+                        }
+
+                    }
+                }
+                estado=buscando;
+            }break;
+        }
+    }
+}
+
+
+        /*
+        int len = myReadUart(UART_ANTENA,rx_buffer,sizeof(rx_buffer),pdMS_TO_TICKS(120));
+
+
+
+        //Si estaba recibiendo datos y en la prox lectura no recivo nada, reseteo el buffer
+        if(reciviendo_datos ==true && len <= 0){
+            //Si estoy reciviendo datos y no recibo nada por la UART en 120ms, reseteo el buffer
+            reciviendo_datos=false;
+            line_len=0;
+            carrier_return_received=false;
+        }
         for (int j = 0; j < len; j++) {
             uint8_t rx_byte = rx_buffer[j];
 
-            // Ignorar caracteres  si es necesario
-            if (rx_byte == '\r') {
+            if(rx_byte == START_CHARACTER) {
+                //Borro todos los datso recividos hasta ahora
+                line_buf[0]=rx_byte;
+                line_len = 1; // Reiniciar el acumulador
+                reciviendo_datos=true;
+                //Inicio un timeout para esperar el resto de la trama
+                //Si pasan mas de 
                 continue;
             }
+            if(reciviendo_datos==true){
 
-            
+                switch(rx_byte){
+                    case '\n':{
+                        if(carrier_return_received == true){
+                            line_buf[line_len++]=rx_byte;
+                            line_buf[line_len++]='\0';
+                            enviarTrama(line_buf);
+                            carrier_return_received=false;
+                            reciviendo_datos=false;
+
+                        }else{
+                            //Trama corrupta, reseteo el buffer cuando me llegue un START_CHARACTER
+                            reciviendo_datos=false;
+                        }
+
+                    }break;
+                    case '\r':{
+                        carrier_return_received = true;
+                        line_buf[line_len++]=rx_byte;
+                    }break;
+
+                    default :{
+                        if(carrier_return_received == true){
+                            //Trama corrupta, reseteo el buffer cuando me llegue un START_CHARACTER
+                            reciviendo_datos=false;
+                            carrier_return_received=false;
+                        }else{
+                            //Caso generico lo agrego al buffer
+                            line_buf[line_len++]=rx_byte;
+                        }
+
+
+                    }break;
+
+
+                }
+            }
+                */
+            //Si no recibi el START_CHARACTER o estoy reciviendo datos simplemente ignoro el dato
+/*            
             if (rx_byte == '\n') {
                 if (line_len > 0) { // Evito tramas vacías
                     memset(txPacket.datos, 0, SIZE_PAYLOAD);
@@ -318,10 +450,26 @@ void serialTask(void *pvParameters) {
                     line_len = 0;
                 }
             }
-        }
-    }
-}
 
+            */
+        
+    
+
+
+uint16_t extractMiCrc(uint8_t* rx_buffer,size_t size){
+
+    if(rx_buffer==NULL)
+        return 0;
+    
+    uint16_t crc = rx_buffer[size-3]<<8 |  rx_buffer[size-2];
+
+
+    return crc;
+     
+
+
+
+}
 // -----------------------------------------------------------------
 // TASK 2: Receptora
 // -----------------------------------------------------------------
@@ -330,41 +478,56 @@ void TAGTask(void *pvParameters) {
 
     ESP_ERROR_CHECK(esp_timer_create(&timed_oneshot_timer_args, &timed_oneshot_timer));
 
-
+    char TAGProcesado[SIZE_PAYLOAD];
     for (;;) {
 
-            for (;;) {vTaskDelay(pdMS_TO_TICKS(100));}
 
         if (xQueueReceive(xQueueMsg, &rxPacket, portMAX_DELAY) == pdPASS) {
             rxPacket.datos[SIZE_PAYLOAD - 1] = '\0';
             if(read_register(FLAG_DEBUG_0)!=0)
                 ESP_LOGI("TAGTask", "Mensaje recibido -> Tipo: 0x%02X | Datos: %s", rxPacket.tipo, rxPacket.datos);
 
-            if (buscarTAG((const char *)rxPacket.datos)) {
 
-                write_register(TRAMBUS_COUNTER, read_register(TRAMBUS_COUNTER) + 1);
-                if (esp_timer_is_active(timed_oneshot_timer)!=0) {
-                    contador_TAGS_validos++;
-                } else {
-                    contador_TAGS_validos = 1;
-
-                    write_register(DO_3_STATE,1);
-                    write_register(TRAMBUS_DETECTADO,1);
-                    ESP_ERROR_CHECK(
-                        esp_timer_start_once(
-                            timed_oneshot_timer,
-                            3000000
-                        )
-                    );
-                }
-
-                if(read_register(FLAG_DEBUG_0)!=0){
-                    ESP_LOGI("TAGTask", "----TAG TRAMBUS VALIDO----");
-                }
-            }else{
+            //Proceso el mensaje recibido
+            if(procesarDatosTAG((const char*)rxPacket.datos,
+                   TAGProcesado,
+                   SIZE_PAYLOAD,
+                   CHAR_DELIMITER,
+                   BYTES_BEFORE_DELIMITTER)!=true)
+            {
                 if(read_register(FLAG_DEBUG_0)!=0)
-                    ESP_LOGI("TAGTask", "----TAG TRAMBUS INVALIDO----");
+                    ESP_LOGI("TAGTask", "Error al procesar TAG: %s", TAGProcesado);
+            }else{
+                  
+                if(read_register(FLAG_DEBUG_0)!=0)
+                    ESP_LOGI("TAGTask", "Se procesó TAG correctamente: %s", TAGProcesado);
 
+                if (buscarTAG(TAGProcesado)) {
+
+                    write_register(TRAMBUS_COUNTER, read_register(TRAMBUS_COUNTER) + 1);
+                    if (esp_timer_is_active(timed_oneshot_timer)!=0) {
+                        contador_TAGS_validos++;
+                    } else {
+                        contador_TAGS_validos = 1;
+
+                        write_register(DO_1_STATE,1);
+                        write_register(TRAMBUS_DETECTADO,1);
+                        ESP_ERROR_CHECK(
+                            esp_timer_start_once(
+                                timed_oneshot_timer,
+                                T_DEMANDA_TRAMBUS_VALIDO
+                            )
+                        );
+                    }
+
+                    if(read_register(FLAG_DEBUG_0)!=0){
+                        ESP_LOGI("TAGTask", "----TAG TRAMBUS VALIDO----");
+                    }
+                }else{
+                    if(read_register(FLAG_DEBUG_0)!=0)
+                        ESP_LOGI("TAGTask", "----TAG TRAMBUS INVALIDO----");
+
+                }
             }
         }
     }
@@ -444,11 +607,12 @@ void timer_callback(void *arg){
 
             // Re disparo el timer para volver a contar 
             ESP_ERROR_CHECK(
-                esp_timer_start_once(timed_oneshot_timer, 3000000)
+                esp_timer_start_once(timed_oneshot_timer, T_DEMANDA_TRAMBUS_VALIDO)
             );
         } else {
             //Si no quedan tags validos dejo de contar y apago la salida.
             write_register(DO_1_STATE,0);
+            
             write_register(TRAMBUS_DETECTADO,0);
 
         }
@@ -471,77 +635,29 @@ void digitalInputsTask(void* pvParameters){
 
 }
 
-bool checksum(uint8_t *datos, size_t len) {
-    if (datos == NULL || len == 0) {
-        return false;
-    }
 
-    if (len < 2) {
-        return false;
-    }
 
-    #ifdef CHECKSUM_DISABLED
-    ESP_LOGI("CHECKSUM", "Checksum valido( sin checksum )");
 
-    return true;
-    #endif
-
-    if (datos[0] != START_CHARACTER) {
-        ESP_LOGI("CHECKSUM","Fallo de caracteres de inicio");
-        return false;
-    }
-
-    uint16_t checksum_trama =
-        ((uint16_t)datos[len - 2] << 8) | datos[len - 1];
-
-    datos[len - 2] = 0;
-
-    if (calccrc(datos + 1) != checksum_trama) {
-        ESP_LOGI("CHECKSUM", "Checksum invalido");
-        #ifdef ACK_NACK_ENABLED
-        sendAck();
-        #endif
-        return false;
-    }
-    #ifdef ACK_NACK_ENABLED
-    sendNack();
-    #endif
+void sendNack(uint8_t num_seq){
     
+    uint8_t buffer[2];
+    snprintf(buffer, sizeof(buffer), "%c","%c", NACK_SEQUENCE,num_seq);
 
-    ESP_LOGI("CHECKSUM", "Checksum valido");
-    return true;
+
+    uart_write_bytes(UART_BRIDGE,buffer,strlen(buffer));
+    uart_write_bytes(UART_ANTENA,buffer,strlen(buffer));
+    uart_write_bytes(UART_DEBUG,buffer,strlen(buffer));
 }
 
+void sendAck(uint8_t num_seq){
 
-void sendNack(){
-    const char* nack_seq=NACK_SEQUENCE;
-    uart_write_bytes(UART_BRIDGE,nack_seq,strlen(nack_seq));
-    uart_write_bytes(UART_ANTENA,nack_seq,strlen(nack_seq));
+    uint8_t buffer[2];
+    snprintf(buffer, sizeof(buffer), "%c","%c", ACK_SEQUENCE,num_seq);
 
-}
+    uart_write_bytes(UART_BRIDGE,buffer,strlen(buffer));
+    uart_write_bytes(UART_ANTENA,buffer,strlen(buffer));
+    uart_write_bytes(UART_DEBUG,buffer,strlen(buffer));
 
-void sendAck(){
-
-    const char* ack_seq=ACK_SEQUENCE;
-
-    uart_write_bytes(UART_BRIDGE,ack_seq,strlen(ack_seq));
-    uart_write_bytes(UART_ANTENA,ack_seq,strlen(ack_seq));
-
-}
-bool validarFormatoTrama(PaqueteMensaje_t* txPacket) {
-    if (txPacket == NULL) {
-        return false;
-    }
-
-    // Calculamos la longitud real de la cadena guardada en txPacket->datos
-    size_t len = strlen((const char *)txPacket->datos);
-
-    // Le pasamos los datos y la longitud a la función checksum
-    if (checksum(txPacket->datos, len) == false) {
-        return false;
-    }
-
-    return true;
 }
 
 bool configurarAntena(){
@@ -631,7 +747,7 @@ void initUartBridge(){
         UART_PIN_NO_CHANGE  // CTS → sin usar
     );
 
-    esp_err_t err= uart_driver_install(UART_BRIDGE, UART_BRIDGE_BUFFER, 256, 0, NULL, 0);
+    esp_err_t err= uart_driver_install(UART_BRIDGE, UART_BRIDGE_BUFFER, 2048, 0, NULL, 0);
 
     if(err!=ESP_OK){
         write_register(SERIAL_TASK_STATE,2);
@@ -640,4 +756,212 @@ void initUartBridge(){
     }
 
 
+}
+
+
+
+bool procesarDatosTAG(const char *datos,
+                      char *TAGProcesado,
+                      size_t buffer_length,
+                      char delimiter,
+                      uint8_t num_bytes_to_extract)
+{
+    if (datos == NULL || TAGProcesado == NULL || buffer_length == 0) {
+        return false;
+    }
+
+    TAGProcesado[0] = '\0';                      // salida definida ante cualquier fallo
+
+    if (datos[0] == '\0' || delimiter == '\0') {
+        return false;
+    }
+    datos++;                                     // salteo el caracter de inicio
+
+    // Posición del delimitador (o fin de cadena)
+    size_t pos = 0;
+    while (datos[pos] != '\0' && datos[pos] != delimiter) {
+        pos++;
+    }
+
+    if (read_register(FLAG_DEBUG_0) != 0) {
+        ESP_LOGI("TAGTask", "pos=%u delim=0x%02X pedidos=%u buf=%u",
+                 (unsigned)pos, (unsigned char)delimiter,
+                 (unsigned)num_bytes_to_extract, (unsigned)buffer_length);
+    }
+
+    // Condiciones para que la extracción sea válida
+    if (datos[pos] != delimiter) return false;                    // no hay delimitador
+    if (pos < num_bytes_to_extract) return false;                 // faltan caracteres previos
+    if ((size_t)num_bytes_to_extract > buffer_length - 1) return false;  // no entra en el buffer
+
+    const size_t n = num_bytes_to_extract;
+
+    // Copio los N caracteres inmediatamente anteriores al delimitador
+    memcpy(TAGProcesado, datos + pos - n, n);
+    TAGProcesado[n] = '\0';
+
+#ifdef SALTEAR_0_INICIALES
+    // "000011223344" -> "11223344" (si es todo ceros deja un solo '0')
+    size_t skip = strspn(TAGProcesado, "0");
+    if (skip == n && n > 0) {
+        skip = n - 1;
+    }
+    if (skip > 0) {
+        memmove(TAGProcesado, TAGProcesado + skip, n - skip + 1);
+    }
+#endif
+
+    return true;
+}
+
+void cargarArchivoConfiguracion(){
+
+    int state = buscarConfiguracion("CONFIG.TXT", "MODO_INDUCTIVO");
+    if(state>0){
+        write_register(MODO_INDUCTIVO_ENABLED,1);
+        ESP_LOGI("MAIN", "MODO INDUCTIVO HABILITADO");
+    }else{
+        write_register(MODO_INDUCTIVO_ENABLED,0);
+        ESP_LOGI("MAIN", "MODO INDUCTIVO DESHABILITADO");
+    }
+
+
+    int crc_state = buscarConfiguracion("CONFIG.TXT", "MODO_CRC");
+    if(crc_state>0){
+        write_register(MODO_CRC_ENABLED,1);
+        ESP_LOGI("MAIN", "MODO CRC HABILITADO");
+    }else{
+        write_register(MODO_CRC_ENABLED,0);
+        ESP_LOGI("MAIN", "MODO CRC DESHABILITADO");
+    }
+
+
+
+
+}
+
+
+int myReadUart(uart_port_t uart_num, void* buf, uint32_t length, TickType_t ticks_to_wait){
+    int len = uart_read_bytes(uart_num, buf, length, pdMS_TO_TICKS(ticks_to_wait));
+    if (len < 0) {
+        ESP_LOGE("UART", "Error al leer de la UART %d", uart_num);
+      //  return -1;
+   }else if (len >0) {
+
+        uart_write_bytes(UART_BRIDGE, (const char *) buf, len);
+        uart_write_bytes(UART_DEBUG, (const char *) buf, len);
+        // No se recibieron datos en el tiempo de espera
+    //    return 0;
+   }
+
+   //if(len==0)
+    //ESP_LOGI("MENSAJE DE ERROR","");
+    //uart_write_bytes(UART_BRIDGE, (const char *) buf, len);
+    return len;
+
+}
+
+void enviarTrama(const char *line)
+{
+    PaqueteMensaje_t txPacket;
+
+    if (line == NULL) {
+        return;
+    }
+
+    const bool debug = (read_register(FLAG_DEBUG_0) != 0);
+
+    // Copio como mucho SIZE_PAYLOAD - 1 bytes para dejar espacio al /0
+    size_t copy_len = strnlen(line, SIZE_PAYLOAD - 1);
+
+    memset(&txPacket, 0, sizeof(txPacket));      
+    memcpy(txPacket.datos, line, copy_len);
+    txPacket.datos[copy_len] = '\0';            
+    txPacket.tipo = MSG_TYPE_TAG_NUEVO;
+
+    if (debug) {
+        ESP_LOGI("UART_ANTENA", "Trama detectada (%u bytes): %s",
+                 (unsigned)copy_len, (const char *)txPacket.datos);
+    }
+/*Ya no uso esto, se hace todo al leer a uart
+    if (!validarFormatoTrama(&txPacket)) {
+        if (debug) {
+            ESP_LOGE("UART_ANTENA", "Formato de trama inválido: %s",
+                     (const char *)txPacket.datos);
+        }
+        return;
+    }
+
+*/
+    if(read_register(MODO_INDUCTIVO_ENABLED)==1){
+        //Si la entrada no esta activa me voy sin hacer nada, no envio el TAG a la cola
+        if (!read_register(DI_1_STATE)) {
+            if (debug) {
+                ESP_LOGE("UART_ANTENA", "TAG recibido valido pero no hay entrada del sensor inductivo : %s",
+                        (const char *)txPacket.datos);
+            }
+            return;
+        }
+    }
+
+
+
+    // no bloquea, si la cola está llena se descarta
+    if (xQueueSend(xQueueMsg, &txPacket, 0) != pdPASS) {
+        if (debug) {
+            ESP_LOGE("UART_ANTENA", "Cola llena, descartando TAG: %s",
+                     (const char *)txPacket.datos);
+        }
+    } else if (debug) {
+        ESP_LOGI("UART_ANTENA", "Enviado a cola: %s",
+                 (const char *)txPacket.datos);
+    }
+}
+
+
+void transmitUartBridgeTASK(void* pvParameters){
+
+    //Buffer para el bridge ANTENA(422)-BRIDGE(232)
+    uint8_t rx_buffer_2[MAX_UART_BUFFER_SIZE];
+
+
+    initUartAntena();
+    initUartBridge();
+
+
+    for(;;){
+        int len2 = uart_read_bytes(UART_BRIDGE,rx_buffer_2,sizeof(rx_buffer_2),pdMS_TO_TICKS(100));
+        if(len2>0){
+            uart_write_bytes(UART_ANTENA,(const char *)rx_buffer_2,len2);
+            uart_write_bytes(UART_DEBUG,(const char *)rx_buffer_2,len2);
+        }
+
+
+        
+
+    }
+
+}
+
+
+
+int buscarFinDeLinea(const uint8_t *data, int size)
+{
+    if (data == NULL || size < 2)
+        return -1;
+
+    int pos = -1;
+    for (int i = 0; i < size - 1; i++) {
+        if (data[i] == '\r' && data[i + 1] == '\n') {
+            pos = i;
+            break;
+        }
+    }
+
+    if (pos >= 0)
+        ESP_LOGI("DEBUG", "Fin de linea encontrado en %d", pos);
+    else
+        ESP_LOGI("DEBUG", "Fin de linea no encontrado");
+
+    return pos;
 }

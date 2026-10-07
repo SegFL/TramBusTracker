@@ -12,3 +12,4 @@ En digitalOuptus se esta copiando la entrada de los sensores inductivos en la sa
 
 
 No se cambio la frecuencia del clock, fijarse si cambia en la temrinal al iniciar
+

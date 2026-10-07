@@ -8,7 +8,7 @@
 #include <string.h>
 #include <sys/types.h>
 #include <dirent.h>
-
+#include <ctype.h>
 #include "sd_card.h"
 
 
@@ -377,4 +377,66 @@ void turnoff_register(void *arg){
 
         }
     }
+}
+/*
+Devuelve -1 si hubo error, 0 si la configuracion no esta habilitada y 1 si esta habilitada
+
+*/
+int buscarConfiguracion(const char *name_file, const char *config_buscada)
+{
+    if (name_file == NULL || config_buscada == NULL || config_buscada[0] == '\0') {
+        return -1;
+    }
+
+    const size_t klen = strlen(config_buscada);
+    char linea[128];
+    char rutaCompleta[128];
+
+    int w = snprintf(rutaCompleta, sizeof rutaCompleta, "%s/%s", MOUNT_POINT, name_file);
+    if (w < 0 || (size_t)w >= sizeof rutaCompleta) {
+        if (read_register(SD_STATE)) { ESP_LOGE(TAG, "Ruta de configuracion demasiado larga"); }
+        return -1;
+    }
+
+    FILE *f = fopen(rutaCompleta, "r");
+    if (f == NULL) {
+        if (read_register(SD_STATE)) {
+            ESP_LOGE(TAG, "Error al abrir el archivo de configuracion: %s", rutaCompleta);
+        }
+        return -1;
+    }
+
+    int resultado = -1;                 /* no encontrada */
+
+    while (fgets(linea, sizeof linea, f) != NULL) {
+        linea[strcspn(linea, "\r\n")] = '\0';
+
+        const char *p = linea;
+        while (isspace((unsigned char)*p)) p++;
+
+        if (strncmp(p, config_buscada, klen) != 0) {
+            continue;
+        }
+        p += klen;
+
+        while (isspace((unsigned char)*p)) p++;
+        if (*p != '=') {
+            continue;
+        }
+        p++;
+
+        while (isspace((unsigned char)*p)) p++;
+        char *fin;
+        long val = strtol(p, &fin, 10);
+        if (fin == p) {
+            resultado = 0;              /* valor no numérico */
+            break;
+        }
+        while (isspace((unsigned char)*fin)) fin++;
+        resultado = (*fin == '\0' && val == 1) ? 1 : 0;
+        break;
+    }
+
+    fclose(f);
+    return resultado;
 }
