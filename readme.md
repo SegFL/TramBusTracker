@@ -1,3 +1,6 @@
+# Versiones
+1.0.0 :07/10/2026 
+
 
 
 Si se envian mas de SIZE_PAYLOAD -1 el buffer de la uart sufre un overflow lo que descarta todos los caracteres 

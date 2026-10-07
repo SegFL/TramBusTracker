@@ -1,5 +1,5 @@
 
-#define FIRMWARE_VERSION "0.0.0"
+#define FIRMWARE_VERSION "1.0.0"
 
 #define LEER_ARCHIVO_RAM
 
