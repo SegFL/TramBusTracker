@@ -281,11 +281,8 @@ bool TAGInit(){
 
 
 void serialTask(void *pvParameters) {
-    PaqueteMensaje_t txPacket;
 
-    uint16_t line_len = 0;
     uint8_t rx_buffer[MAX_UART_BUFFER_SIZE];
-    uint8_t byte_recibido = 0;
     uint8_t aux=0;
     bool reciviendo_datos=false;
     bool carrier_return_received=false;
@@ -296,6 +293,7 @@ void serialTask(void *pvParameters) {
     uint8_t nacks_counter =0;
     uint8_t num_seq_impar=0;
     for(;;){
+
         switch(estado){
             case buscando:{
                 //Los ticks son cada 10ms en general, si poner un valor menor redondea a 0 y bloquea la tarea indefinidamente(WT)
@@ -303,7 +301,7 @@ void serialTask(void *pvParameters) {
                 if(len==1 && rx_buffer[0]==START_CHARACTER){
                     estado = mensaje;
                 }
-            
+        
             }break;
             case mensaje:{
                 len = myReadUart(UART_ANTENA,rx_buffer,MAX_UART_BUFFER_SIZE,100);
@@ -336,16 +334,10 @@ void serialTask(void *pvParameters) {
                             rx_buffer[size-4]=0;
                             enviarTrama(rx_buffer);
                         }else if(crc == mycrc && num_seq_impar == 0){//Estoy en modo CRC
-
-                            //Envio numero de secuencia
-                            //sendAck(rx_buffer[0]);
-
                             sendConfirmation(rx_buffer[0],ACK_SEQUENCE );
                             enviarTrama(rx_buffer);
                             nacks_counter=0;
                         }else if( num_seq_impar == 0 ){
-
-                            //Reintento hasta 5 veces pero tomo como valida la trama
                             if(nacks_counter > 5){
                                 sendConfirmation(rx_buffer[0],ACK_SEQUENCE );
                                 enviarTrama(rx_buffer);
@@ -354,7 +346,6 @@ void serialTask(void *pvParameters) {
                                 sendConfirmation(rx_buffer[0],NACK_SEQUENCE );
                                 nacks_counter++;
                             }
-
                         }
                     }
                 }
@@ -362,6 +353,7 @@ void serialTask(void *pvParameters) {
             }break;
         }
     }
+
 }
 
 
