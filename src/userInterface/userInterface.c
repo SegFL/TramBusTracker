@@ -231,20 +231,20 @@ if(menu->id == 21){
     if(index < 4 && (value == 0 || value == 1)){
         switch(index){
             case 0:{
-                write_register(DO_1_FORCED_STATE, value);
-                write_register(FORCE_OUTPUTS, 1);         
+                write_register(DO_1_STATE, value);
+                //write_register(FORCE_OUTPUTS, 1);         
             }break;
             case 1:{
-                write_register(DO_2_FORCED_STATE, value);
-                write_register(FORCE_OUTPUTS, 1);         
+                write_register(DO_2_STATE, value);
+                //write_register(FORCE_OUTPUTS, 1);         
             }break;
             case 2:{
-                write_register(DO_3_FORCED_STATE, value);
-                write_register(FORCE_OUTPUTS, 1);         
+                write_register(DO_3_STATE, value);
+                //write_register(FORCE_OUTPUTS, 1);         
             }break;
             case 3:{
-                write_register(DO_4_FORCED_STATE, value);
-                write_register(FORCE_OUTPUTS, 1);         
+                write_register(DO_4_STATE, value);
+                //write_register(FORCE_OUTPUTS, 1);         
             }break;
         }
     }
@@ -498,7 +498,12 @@ void printDataNames(void)
     moveCursor(i++, 1); 
     writeSerialCom("CAR_COUNTER");         
 
+    moveCursor(i++, 1); 
+    writeSerialCom("MODO_INDUCTIVO_ENABLED");  
+    moveCursor(i++, 1); 
+    writeSerialCom("MODO_CRC_ENABLED");  
     moveCursor(i++, 1);
+
     writeSerialCom("---------------------------------------------");
 }
 
@@ -621,6 +626,15 @@ void printDataValues(void)
     moveCursor(i++, 35);
     snprintf(buffer, sizeof(buffer), "%u", read_register(CAR_COUNTER));        
     writeSerialCom(buffer);
+
+    moveCursor(i++, 35);
+    snprintf(buffer, sizeof(buffer), "%u", read_register(MODO_INDUCTIVO_ENABLED));        
+    writeSerialCom(buffer);
+
+    moveCursor(i++, 35);
+    snprintf(buffer, sizeof(buffer), "%u", read_register(MODO_CRC_ENABLED));        
+    writeSerialCom(buffer);
+
 
     writeSerialCom("\033[u");   // restaura posición: el próximo mensaje de otro módulo continúa ahí
 }

@@ -17,8 +17,8 @@
 #include "src/digitalOutputs/digitalOutputs.h"
 #include "src/auxFunc/auxFunc.h"
 
-
-#define MAX_UART_BUFFER_SIZE 64         //Cantidad de bytes que lee la UART antena cada vez
+//Si pongo 128 provoca un stackoverflow y no se porque
+#define MAX_UART_BUFFER_SIZE 80         //Cantidad de bytes que lee la UART antena cada vez
 
 //Secuencia de debug 
 #define ESC_CHAR       0x1B
@@ -64,6 +64,7 @@ void digitalOutputsTask(void* pvParameters);
 void IOTask(void* pvParameters);
 void ledsDriverTask(void*pvParameters);
 void transmitUartBridgeTASK(void* pvParameters);
+void leerSensorInductivoTask(void* pvParameters);
 
 /*
 ---------------------------Funciones privadas 
@@ -80,6 +81,7 @@ bool TAGInit();
 bool debugSequence();
 void sendAck(uint8_t num_seq);
 void sendNack(uint8_t num_seq);
+void sendConfirmation(uint8_t num_seq, uint8_t confirmation_character);
 bool procesarDatosTAG(const char *datos,
                    char *TAGProcesado,
                    size_t buffer_length,
@@ -88,9 +90,9 @@ bool procesarDatosTAG(const char *datos,
 void cargarArchivoConfiguracion();
 void enviarTrama(const char *line);
 int myReadUart(uart_port_t uart_num, void* buf, uint32_t length, TickType_t ticks_to_wait);
-int buscarFinDeLinea(const uint8_t* data,int size);
-uint16_t extractMiCrc(uint8_t* rx_buffer,size_t size);
-
+uint8_t buscarFinDeLinea(const uint8_t* data,uint8_t size);
+uint16_t extractMiCrc(uint8_t* rx_buffer,uint8_t size);
+void actualizarSensorInductivo();
 
 esp_timer_handle_t timed_oneshot_timer;
 esp_timer_create_args_t timed_oneshot_timer_args = {
@@ -127,6 +129,10 @@ void app_main() {
 
     xTaskCreate(transmitUartBridgeTASK,"BRIDGETASK",2048,NULL,1,NULL);
 
+    vTaskDelay(pdMS_TO_TICKS(100));
+
+    xTaskCreate(TAGFileTask,"TAGFileTask",2*8192,NULL,1,NULL);
+
     // 1. Crear la cola con espacio para 10 paquetes
     xQueueMsg = xQueueCreate(10, sizeof(PaqueteMensaje_t));
 
@@ -140,9 +146,7 @@ void app_main() {
         write_register(TAGS_TASK_STATE,1);
         ESP_LOGE("MAIN", "Error al crear la cola de mensajes entre SerialTask y TAGTask.");
     }
-    vTaskDelay(pdMS_TO_TICKS(100));
 
-    xTaskCreate(TAGFileTask,"TAGFileTask",2*8192,NULL,1,NULL);
 
 
 
@@ -150,6 +154,8 @@ void app_main() {
     //Pongo un delay para evitar que se impriman mensajes del 
     //menu antes de que se terminene de inicializar el resto de las tareas
     xTaskCreate(ledsDriverTask,"userTask",2*2048,NULL,3,NULL);
+    xTaskCreate(leerSensorInductivoTask,"leerSensorInductivo",1024,NULL,1,NULL);
+
     if(debugConsoleEnabled==true)
         xTaskCreate(userTask,"userTask",2*2048,NULL,3,NULL);
 
@@ -277,7 +283,6 @@ bool TAGInit(){
 void serialTask(void *pvParameters) {
     PaqueteMensaje_t txPacket;
 
-    uint8_t line_buf[SIZE_PAYLOAD ]; 
     uint16_t line_len = 0;
     uint8_t rx_buffer[MAX_UART_BUFFER_SIZE];
     uint8_t byte_recibido = 0;
@@ -285,59 +290,72 @@ void serialTask(void *pvParameters) {
     bool reciviendo_datos=false;
     bool carrier_return_received=false;
     int len = 0;
-
+    bool init =true;
     state_uart estado = buscando;
-    
 
-
+    uint8_t nacks_counter =0;
+    uint8_t num_seq_impar=0;
     for(;;){
         switch(estado){
-
             case buscando:{
-
                 //Los ticks son cada 10ms en general, si poner un valor menor redondea a 0 y bloquea la tarea indefinidamente(WT)
                 len = myReadUart(UART_ANTENA,rx_buffer,1,10);
                 if(len==1 && rx_buffer[0]==START_CHARACTER){
                     estado = mensaje;
-                    ESP_LOGI("DEBUG:","Recibiendo mensaje");
                 }
-                
-
-                    
+            
             }break;
-
             case mensaje:{
-                len = myReadUart(UART_ANTENA,rx_buffer,MAX_UART_BUFFER_SIZE,120);
+                len = myReadUart(UART_ANTENA,rx_buffer,MAX_UART_BUFFER_SIZE,100);
                 if(len>0){
-                    ESP_LOGI("DEBUG","len : %lu",len);
+                    uint8_t size = buscarFinDeLinea(rx_buffer,len);
+                    if(size>7 && size<255){
 
-                    int size = buscarFinDeLinea(rx_buffer,len);
-                    ESP_LOGI("DEBUG","Busque fi de linea: %lu",size);
-                    if(size>4){
+                            //Si el num de seq es impar lo descarto
+                        num_seq_impar = hexchar_to_val(rx_buffer[0])  & 0x01;
 
-
-                        ESP_LOGI("ss","Enocntre fin de linea en %i",size);
                         //extraer crc y pisar con un /0
-                        uint16_t mycrc = extractMiCrc(rx_buffer,size);
+                        uint16_t mycrc = extractMiCrc(rx_buffer+size-4,4);
                         aux=rx_buffer[size-4];
                         rx_buffer[size-4]=0;
-                        ESP_LOGI("UART","Cadena recivida : %s",rx_buffer);
-                        uint16_t crc = calccrc(rx_buffer);
+                        uint16_t crc = calccrc(rx_buffer); 
                         rx_buffer[size-4]=aux;
+                        ESP_LOGI("CRC mycrc", "CRC: 0x%04X", mycrc);
+                        ESP_LOGI("CRC crc", "CRC: 0x%04X", crc);
 
-                        
-                        if(read_register(MODO_CRC_ENABLED)==0){
-                            enviarTrama(rx_buffer);
-
-                        }else if(crc == mycrc){
-                            //Envio numero de secuencia
-                            sendAck(rx_buffer[0]);
-                            enviarTrama(rx_buffer);
-
-                        }else{
-                            sendNack(rx_buffer[0]);
+                        if(init==true){//Me fijo si tengo que configurar la antena en un cierto modo( con CRC o sin CRC)
+                            if((rx_buffer[0]=='0' )){
+                                //Pisa el valor de la SD
+                                    write_register(MODO_CRC_ENABLED,1);
+                                    ESP_LOGI("Autoconfig","Entre en modo CRC automatico");
+                            }
+                            init=false;
                         }
+                        if(read_register(MODO_CRC_ENABLED)==0){
+                            //Si no estoy en modo CRC deberia enviar la trama sin el CRC(ultimos 4 bytes)
+                            rx_buffer[size-4]=0;
+                            enviarTrama(rx_buffer);
+                        }else if(crc == mycrc && num_seq_impar == 0){//Estoy en modo CRC
 
+                            //Envio numero de secuencia
+                            //sendAck(rx_buffer[0]);
+
+                            sendConfirmation(rx_buffer[0],ACK_SEQUENCE );
+                            enviarTrama(rx_buffer);
+                            nacks_counter=0;
+                        }else if( num_seq_impar == 0 ){
+
+                            //Reintento hasta 5 veces pero tomo como valida la trama
+                            if(nacks_counter > 5){
+                                sendConfirmation(rx_buffer[0],ACK_SEQUENCE );
+                                enviarTrama(rx_buffer);
+                                nacks_counter =0;
+                            }else{
+                                sendConfirmation(rx_buffer[0],NACK_SEQUENCE );
+                                nacks_counter++;
+                            }
+
+                        }
                     }
                 }
                 estado=buscando;
@@ -347,128 +365,25 @@ void serialTask(void *pvParameters) {
 }
 
 
-        /*
-        int len = myReadUart(UART_ANTENA,rx_buffer,sizeof(rx_buffer),pdMS_TO_TICKS(120));
 
-
-
-        //Si estaba recibiendo datos y en la prox lectura no recivo nada, reseteo el buffer
-        if(reciviendo_datos ==true && len <= 0){
-            //Si estoy reciviendo datos y no recibo nada por la UART en 120ms, reseteo el buffer
-            reciviendo_datos=false;
-            line_len=0;
-            carrier_return_received=false;
-        }
-        for (int j = 0; j < len; j++) {
-            uint8_t rx_byte = rx_buffer[j];
-
-            if(rx_byte == START_CHARACTER) {
-                //Borro todos los datso recividos hasta ahora
-                line_buf[0]=rx_byte;
-                line_len = 1; // Reiniciar el acumulador
-                reciviendo_datos=true;
-                //Inicio un timeout para esperar el resto de la trama
-                //Si pasan mas de 
-                continue;
-            }
-            if(reciviendo_datos==true){
-
-                switch(rx_byte){
-                    case '\n':{
-                        if(carrier_return_received == true){
-                            line_buf[line_len++]=rx_byte;
-                            line_buf[line_len++]='\0';
-                            enviarTrama(line_buf);
-                            carrier_return_received=false;
-                            reciviendo_datos=false;
-
-                        }else{
-                            //Trama corrupta, reseteo el buffer cuando me llegue un START_CHARACTER
-                            reciviendo_datos=false;
-                        }
-
-                    }break;
-                    case '\r':{
-                        carrier_return_received = true;
-                        line_buf[line_len++]=rx_byte;
-                    }break;
-
-                    default :{
-                        if(carrier_return_received == true){
-                            //Trama corrupta, reseteo el buffer cuando me llegue un START_CHARACTER
-                            reciviendo_datos=false;
-                            carrier_return_received=false;
-                        }else{
-                            //Caso generico lo agrego al buffer
-                            line_buf[line_len++]=rx_byte;
-                        }
-
-
-                    }break;
-
-
-                }
-            }
-                */
-            //Si no recibi el START_CHARACTER o estoy reciviendo datos simplemente ignoro el dato
-/*            
-            if (rx_byte == '\n') {
-                if (line_len > 0) { // Evito tramas vacías
-                    memset(txPacket.datos, 0, SIZE_PAYLOAD);
-
-                    // Acoto la longitud máxima al tamaño de txPacket.datos
-                    uint16_t copy_len = (line_len < SIZE_PAYLOAD - 1) ? line_len : (SIZE_PAYLOAD - 1);
-                    memcpy(txPacket.datos, line_buf, copy_len);
-                    txPacket.datos[copy_len] = '\0';
-                    txPacket.tipo = MSG_TYPE_TAG_NUEVO;
-
-                    if (read_register(FLAG_DEBUG_0) != 0) {ESP_LOGI("UART_ANTENA", "Trama detectada (%d bytes): %s", copy_len, txPacket.datos);}
-                    if(validarFormatoTrama(&txPacket)==true){
-                        
-                    
-                        if(read_register(DI_1_STATE)){
-                            //Espero hasta 50ms si la cola esta llena
-                            if (xQueueSend(xQueueMsg, &txPacket, pdMS_TO_TICKS(50)) != pdPASS) {
-                                if (read_register(FLAG_DEBUG_0) != 0) {ESP_LOGE("UART_ANTENA", "Error cola llena, decartando TAG:%s", txPacket.datos);}
-                            } else {
-                                if (read_register(FLAG_DEBUG_0) != 0){ESP_LOGI("UART_ANTENA", "ENVIANDO A COLA: %s", txPacket.datos);}
-                            }
-                        }
-
-                    }
-                    // Reiniciar el acumulador
-                    line_len = 0;
-
-                }
-            } else {
-                // Acumular byte en el buffer
-                if (line_len < sizeof(line_buf) - 1) {
-                    line_buf[line_len++] = rx_byte;
-                } else {
-                    // Si la trama supera el tamaño máximo permitido, descartar para evitar corrupción
-                    if (read_register(FLAG_DEBUG_0) != 0){ESP_LOGI("UART_ANTENA", "Saturación de trama, descartando buffer");}
-                    line_len = 0;
-                }
-            }
-
-            */
-        
     
 
 
-uint16_t extractMiCrc(uint8_t* rx_buffer,size_t size){
+uint16_t extractMiCrc(uint8_t* rx_buffer,uint8_t size){
 
+    uint16_t crc_buffer;
+    uint16_t var[4];
+    unsigned char i;
     if(rx_buffer==NULL)
         return 0;
-    
-    uint16_t crc = rx_buffer[size-3]<<8 |  rx_buffer[size-2];
-
-
-    return crc;
-     
-
-
-
+    for(i=0;i<4;i++)
+        var[i]=hexchar_to_val(rx_buffer[i]);
+    //onvierto con shift, los chars
+    var[0]=(var[0]<<12);
+    var[1]=(var[1]<<8);
+    var[2]=(var[2]<<4);
+    crc_buffer=(var[0]|var[1]|var[2]|var[3]);          
+    return crc_buffer;
 }
 // -----------------------------------------------------------------
 // TASK 2: Receptora
@@ -634,33 +549,41 @@ void digitalInputsTask(void* pvParameters){
     }
 
 }
+/*
+Envia un mensaje de confirmacion( NACK / ACK ) segun el caracter enviado como confirmation_caracter
+*/
 
+void sendConfirmation(uint8_t num_seq, uint8_t confirmation_character) {
+    uint8_t buffer[8];
 
+    // Calculo el crc
+    buffer[0]='#';
+    buffer[1] = num_seq;
+    buffer[2] = confirmation_character;
+    buffer[3] =0x60;
+    buffer[4] =0x60;
+    buffer[5] =0x60;
+    buffer[6] =0x60;
+    buffer[7] =0x0D;
 
-
-void sendNack(uint8_t num_seq){
-    
-    uint8_t buffer[2];
-    snprintf(buffer, sizeof(buffer), "%c","%c", NACK_SEQUENCE,num_seq);
-
-
-    uart_write_bytes(UART_BRIDGE,buffer,strlen(buffer));
-    uart_write_bytes(UART_ANTENA,buffer,strlen(buffer));
-    uart_write_bytes(UART_DEBUG,buffer,strlen(buffer));
-}
-
-void sendAck(uint8_t num_seq){
-
-    uint8_t buffer[2];
-    snprintf(buffer, sizeof(buffer), "%c","%c", ACK_SEQUENCE,num_seq);
-
-    uart_write_bytes(UART_BRIDGE,buffer,strlen(buffer));
-    uart_write_bytes(UART_ANTENA,buffer,strlen(buffer));
-    uart_write_bytes(UART_DEBUG,buffer,strlen(buffer));
-
+   // buffer[2] = 0;
+    /*uint16_t crc = calccrc(buffer); // CRC calculado sobre seq + confirmation_character
+    // Construyo la trama
+    uint8_t tx_frame[6];
+    tx_frame[0] = START_CHARACTER;
+    tx_frame[1] = num_seq;
+    tx_frame[2] = confirmation_character;
+    tx_frame[3] = crc >> 8;   // Byte alto del CRC
+    tx_frame[4] = crc & 0xFF; // Byte bajo del CRC*/
+   // tx_frame[5] = '\r'; 
+    uart_write_bytes(UART_BRIDGE, (const char*)buffer, 8);
+    uart_write_bytes(UART_ANTENA, (const char*)buffer, 8);
+    uart_write_bytes(UART_DEBUG,  (const char*)buffer, 8);
 }
 
 bool configurarAntena(){
+
+    ESP_LOGI("CONFIGURANDO ANTENA","NO HICE NADA");
     return true;
 }
 
@@ -851,12 +774,10 @@ int myReadUart(uart_port_t uart_num, void* buf, uint32_t length, TickType_t tick
         uart_write_bytes(UART_BRIDGE, (const char *) buf, len);
         uart_write_bytes(UART_DEBUG, (const char *) buf, len);
         // No se recibieron datos en el tiempo de espera
-    //    return 0;
+
    }
 
-   //if(len==0)
-    //ESP_LOGI("MENSAJE DE ERROR","");
-    //uart_write_bytes(UART_BRIDGE, (const char *) buf, len);
+
     return len;
 
 }
@@ -883,16 +804,7 @@ void enviarTrama(const char *line)
         ESP_LOGI("UART_ANTENA", "Trama detectada (%u bytes): %s",
                  (unsigned)copy_len, (const char *)txPacket.datos);
     }
-/*Ya no uso esto, se hace todo al leer a uart
-    if (!validarFormatoTrama(&txPacket)) {
-        if (debug) {
-            ESP_LOGE("UART_ANTENA", "Formato de trama inválido: %s",
-                     (const char *)txPacket.datos);
-        }
-        return;
-    }
 
-*/
     if(read_register(MODO_INDUCTIVO_ENABLED)==1){
         //Si la entrada no esta activa me voy sin hacer nada, no envio el TAG a la cola
         if (!read_register(DI_1_STATE)) {
@@ -945,12 +857,12 @@ void transmitUartBridgeTASK(void* pvParameters){
 
 
 
-int buscarFinDeLinea(const uint8_t *data, int size)
+uint8_t buscarFinDeLinea(const uint8_t *data, uint8_t size)
 {
     if (data == NULL || size < 2)
-        return -1;
+        return 0;
 
-    int pos = -1;
+    uint8_t pos = 0;
     for (int i = 0; i < size - 1; i++) {
         if (data[i] == '\r' && data[i + 1] == '\n') {
             pos = i;
@@ -959,9 +871,51 @@ int buscarFinDeLinea(const uint8_t *data, int size)
     }
 
     if (pos >= 0)
-        ESP_LOGI("DEBUG", "Fin de linea encontrado en %d", pos);
+        ESP_LOGI("DEBUG", "Fin de linea encontrado en %"PRIu16, pos);
     else
         ESP_LOGI("DEBUG", "Fin de linea no encontrado");
 
     return pos;
+}
+
+
+void actualizarSensorInductivo(){
+
+    unsigned char cambio=0,val=0;
+    if(read_register(MODO_INDUCTIVO_ENABLED)==0){
+        write_register(DO_3_STATE,1);
+        write_register(DO_4_STATE,0);
+
+    }else{
+
+        for(int i=0;i<2;i++)
+        {
+            val=read_register(DI_1_STATE+i);
+            if(val==1)
+            {//encender el rele i
+                cambio=1;
+            }
+            write_register(DO_3_STATE+i,val);
+            
+        }
+        if(cambio==1)
+        {//delay  5 segundos
+            vTaskDelay(pdMS_TO_TICKS(5000));
+        }
+        //write_register(DO_3_STATE,0);
+        //write_register(DO_4_STATE,0);
+        //Apagar todos los Reles
+    }
+
+
+}
+
+void leerSensorInductivoTask(void* pvParameters){
+
+
+    for(;;){
+        actualizarSensorInductivo();
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+
 }

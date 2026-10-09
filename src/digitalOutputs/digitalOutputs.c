@@ -3,7 +3,8 @@
 
 
 #include "digitalOutputs.h"
-
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 bool digitalOutputsInit(){
 
 
@@ -30,15 +31,15 @@ bool digitalOutputsInit(){
 
 void digitalOutputsUpdate(){
 
+unsigned char delay=0;
 
 
-
-
+/*
     #ifdef BYPASS_TAG_FILTER
         gpio_set_level(DO_1,!read_register(DI_1_STATE));
         gpio_set_level(DO_2,!read_register(DI_2_STATE));
 
-    #else    
+    #else  /*  /*
         if(read_register(FORCE_OUTPUTS)!=0){
             gpio_set_level(DO_1,!read_register(DO_1_FORCED_STATE));
             gpio_set_level(DO_2,!read_register(DO_2_FORCED_STATE));
@@ -46,19 +47,37 @@ void digitalOutputsUpdate(){
             gpio_set_level(DO_4,!read_register(DO_4_FORCED_STATE));
 
         }else{
+        */
             gpio_set_level(DO_1,!read_register(DO_1_STATE));
             gpio_set_level(DO_2,!read_register(DO_2_STATE));
-            if(read_register(MODO_INDUCTIVO_ENABLED)!=0){
-                gpio_set_level(DO_3,!read_register(DO_3_STATE));
-                gpio_set_level(DO_4,!read_register(DO_4_STATE));
-
+            gpio_set_level(DO_3,!read_register(DO_3_STATE));
+            gpio_set_level(DO_4,!read_register(DO_4_STATE));
+        /*
+            if(read_register(MODO_INDUCTIVO_ENABLED)==1){
+                if(read_register(DI_1_STATE))
+                {
+                    gpio_set_level(DO_3,!read_register(DI_1_STATE));
+                    delay=1; 
+                }
+                if(read_register(DI_2_STATE))
+                {
+                    gpio_set_level(DO_4,!read_register(DI_2_STATE));
+                    delay=1;
+                    
+                }
+                if(delay==1)
+                    vTaskDelay(pdMS_TO_TICKS(5000));
+                    
+                delay=0;
+           
             }else{
                 //Dejo un rele prendido simepre y el otro apagado
                 gpio_set_level(DO_3,0);//Encendido
                 gpio_set_level(DO_4,1);//Apagado
             }
-    
+            
+    */
 
-        }
-    #endif
+        
+
 }

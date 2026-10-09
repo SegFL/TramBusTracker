@@ -68,8 +68,8 @@
 //Caracter inicial para considerar una trama TAG valida
 #define START_CHARACTER '#'
 //#define ACK_NACK_ENABLED
-#define NACK_SEQUENCE "?"
-#define ACK_SEQUENCE "@"
+#define NACK_SEQUENCE '?'
+#define ACK_SEQUENCE '@'
 
 #define CHAR_DELIMITER '&'   //Caracter que separa los datos de un TAG
 //Si el TAG tiene menos de BYTES_BEFORE_DELIMITTER caracteres los mensajes de error imprimen basura
