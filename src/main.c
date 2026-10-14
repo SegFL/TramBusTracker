@@ -16,6 +16,17 @@
 #include "src/ledsDriver/ledsDriver.h"
 #include "src/digitalOutputs/digitalOutputs.h"
 #include "src/auxFunc/auxFunc.h"
+#include <string.h>
+
+
+#define PREFIJO_MODEL "Model"
+#define PREFIJO_COPY "Copy"
+#define MENSAJE_MODO_ERRORES "#01\x0D"
+#define MENSAJE_MODO_READER "#00\x0D"
+#define MENSAJE_DONE "Done"
+#define MENSAJE_2 "#611\x0D"
+#define MENSAJE_SALIR_MODO_CONFIG "#100````\x0D"
+#define MENSAJE_DONE_CRC "1Done 686C"
 
 //Si pongo 128 provoca un stackoverflow y no se porque
 #define MAX_UART_BUFFER_SIZE 80         //Cantidad de bytes que lee la UART antena cada vez
@@ -76,7 +87,7 @@ void timer_callback(void *arg);
 
 bool checksum(uint8_t *datos, size_t len);
 bool validarFormatoTrama(PaqueteMensaje_t* txPacket);
-bool configurarAntena();
+unsigned char configurarAntena();
 bool TAGInit();
 bool debugSequence();
 void sendAck(uint8_t num_seq);
@@ -90,9 +101,13 @@ bool procesarDatosTAG(const char *datos,
 void cargarArchivoConfiguracion();
 void enviarTrama(const char *line);
 int myReadUart(uart_port_t uart_num, void* buf, uint32_t length, TickType_t ticks_to_wait);
-uint8_t buscarFinDeLinea(const uint8_t* data,uint8_t size);
+int myWriteUart(uart_port_t uart_num, const void* src, size_t size);
+uint8_t buscarFinDeLinea(const uint8_t *data, uint8_t size, const char *fin);
+
 uint16_t extractMiCrc(uint8_t* rx_buffer,uint8_t size);
 void actualizarSensorInductivo();
+void leerTramas(unsigned char init_done);
+
 
 esp_timer_handle_t timed_oneshot_timer;
 esp_timer_create_args_t timed_oneshot_timer_args = {
@@ -125,16 +140,32 @@ void app_main() {
     ESP_LOGI("FIRMWARE", "Firmware version: %s", FIRMWARE_VERSION);
     //Primero necestio los pine sdigital habilitados porque los uso para ver si inicilizo la sd card o no
 
+    //Escribo el registro en un modo indeterminado para que se sobreescriba luegos
+    write_register(MODO_CRC_ENABLED,0xff);
+
     xTaskCreate(digitalInputsTask,"digitalTask",2*1024,NULL,1,NULL);
 
     xTaskCreate(transmitUartBridgeTASK,"BRIDGETASK",2048,NULL,1,NULL);
 
-    vTaskDelay(pdMS_TO_TICKS(100));
+  
 
+    //Aca ya inicilizo la sd y la configuracion de config.txt
     xTaskCreate(TAGFileTask,"TAGFileTask",2*8192,NULL,1,NULL);
-
+    
     // 1. Crear la cola con espacio para 10 paquetes
     xQueueMsg = xQueueCreate(10, sizeof(PaqueteMensaje_t));
+
+
+
+
+
+
+    xTaskCreate(digitalOutputsTask,"DOTask",1024,NULL,1,NULL);
+    //Pongo un delay para evitar que se impriman mensajes del 
+    //menu antes de que se terminene de inicializar el resto de las tareas
+    xTaskCreate(ledsDriverTask,"userTask",2*2048,NULL,3,NULL);
+    xTaskCreate(leerSensorInductivoTask,"leerSensorInductivo",1024,NULL,1,NULL);
+
 
     if (xQueueMsg != NULL) {
         // 2. Crear las dos tareas
@@ -146,15 +177,6 @@ void app_main() {
         write_register(TAGS_TASK_STATE,1);
         ESP_LOGE("MAIN", "Error al crear la cola de mensajes entre SerialTask y TAGTask.");
     }
-
-
-
-
-    xTaskCreate(digitalOutputsTask,"DOTask",1024,NULL,1,NULL);
-    //Pongo un delay para evitar que se impriman mensajes del 
-    //menu antes de que se terminene de inicializar el resto de las tareas
-    xTaskCreate(ledsDriverTask,"userTask",2*2048,NULL,3,NULL);
-    xTaskCreate(leerSensorInductivoTask,"leerSensorInductivo",1024,NULL,1,NULL);
 
     if(debugConsoleEnabled==true)
         xTaskCreate(userTask,"userTask",2*2048,NULL,3,NULL);
@@ -279,80 +301,125 @@ bool TAGInit(){
     }
 }
 
+void leerTramas(unsigned char init_done){
 
-void serialTask(void *pvParameters) {
+    static uint8_t rx_buffer[MAX_UART_BUFFER_SIZE];
+    static uint8_t aux=0;
+    static bool reciviendo_datos=false;
+    static bool carrier_return_received=false;
+    static int len = 0;
+    static bool init =true;
+    static state_uart estado = buscando;
 
-    uint8_t rx_buffer[MAX_UART_BUFFER_SIZE];
-    uint8_t aux=0;
-    bool reciviendo_datos=false;
-    bool carrier_return_received=false;
-    int len = 0;
-    bool init =true;
-    state_uart estado = buscando;
+    static uint8_t nacks_counter =0;
+    static uint8_t num_seq_impar=0;
 
-    uint8_t nacks_counter =0;
-    uint8_t num_seq_impar=0;
-    for(;;){
+    if(init_done==0x01)//Ya se inicializo el modo de error
+    {
+        init=false;//Me fijo si tengo que configurar la antena en un cierto modo( con CRC o sin CRC)
+        //Pisa el valor de la SD
+        write_register(MODO_CRC_ENABLED,1);
+    }
+//Sino, no tengo idea si esta o no activado el modo errores, sigo como siempre
 
-        switch(estado){
-            case buscando:{
-                //Los ticks son cada 10ms en general, si poner un valor menor redondea a 0 y bloquea la tarea indefinidamente(WT)
-                len = myReadUart(UART_ANTENA,rx_buffer,1,10);
-                if(len==1 && rx_buffer[0]==START_CHARACTER){
-                    estado = mensaje;
-                }
-        
-            }break;
-            case mensaje:{
-                len = myReadUart(UART_ANTENA,rx_buffer,MAX_UART_BUFFER_SIZE,100);
-                if(len>0){
-                    uint8_t size = buscarFinDeLinea(rx_buffer,len);
-                    if(size>7 && size<255){
+    
+    switch(estado){
+        case buscando:{
+            //Los ticks son cada 10ms en general, si poner un valor menor redondea a 0 y bloquea la tarea indefinidamente(WT)
+            len = myReadUart(UART_ANTENA,rx_buffer,1,10);
+            if(len==1 && rx_buffer[0]==START_CHARACTER){
+                estado = mensaje;
+            }
 
-                            //Si el num de seq es impar lo descarto
-                        num_seq_impar = hexchar_to_val(rx_buffer[0])  & 0x01;
-
-                        //extraer crc y pisar con un /0
-                        uint16_t mycrc = extractMiCrc(rx_buffer+size-4,4);
-                        aux=rx_buffer[size-4];
-                        rx_buffer[size-4]=0;
-                        uint16_t crc = calccrc(rx_buffer); 
-                        rx_buffer[size-4]=aux;
-                        ESP_LOGI("CRC mycrc", "CRC: 0x%04X", mycrc);
-                        ESP_LOGI("CRC crc", "CRC: 0x%04X", crc);
-
-                        if(init==true){//Me fijo si tengo que configurar la antena en un cierto modo( con CRC o sin CRC)
-                            if((rx_buffer[0]=='0' )){
-                                //Pisa el valor de la SD
-                                    write_register(MODO_CRC_ENABLED,1);
-                                    ESP_LOGI("Autoconfig","Entre en modo CRC automatico");
-                            }
-                            init=false;
+        }break;
+        case mensaje:{
+            len = myReadUart(UART_ANTENA,rx_buffer,MAX_UART_BUFFER_SIZE,100);
+            if(len>0){
+                uint8_t size = buscarFinDeLinea(rx_buffer,len,"\r\n");
+                if(size>3 && size<255){ 
+                        //Si el num de seq es impar lo descarto
+                    num_seq_impar = hexchar_to_val(rx_buffer[0])  & 0x01;   
+                    //extraer crc y pisar con un /0
+                    uint16_t mycrc = extractMiCrc(rx_buffer+size-4,4);
+                    aux=rx_buffer[size-4];
+                    rx_buffer[size-4]=0;
+                    uint16_t crc = calccrc(rx_buffer); 
+                    rx_buffer[size-4]=aux;
+                    ESP_LOGI("CRC mycrc", "CRC: 0x%04X", mycrc);
+                    ESP_LOGI("CRC crc", "CRC: 0x%04X", crc);    
+                    if(init==true){//Me fijo si tengo que configurar la antena en un cierto modo( con CRC o sin CRC)
+                        if((rx_buffer[0]=='0' )){
+                            //Pisa el valor de la SD
+                                write_register(MODO_CRC_ENABLED,1);
+                                ESP_LOGI("Autoconfig","Entre en modo CRC automatico");
                         }
-                        if(read_register(MODO_CRC_ENABLED)==0){
-                            //Si no estoy en modo CRC deberia enviar la trama sin el CRC(ultimos 4 bytes)
-                            rx_buffer[size-4]=0;
-                            enviarTrama(rx_buffer);
-                        }else if(crc == mycrc && num_seq_impar == 0){//Estoy en modo CRC
+                        init=false;
+                    }
+                    if(read_register(MODO_CRC_ENABLED)==0){
+                        //Si no estoy en modo CRC deberia enviar la trama sin el CRC(ultimos 4 bytes)
+                        rx_buffer[size-4]=0;
+                        enviarTrama(rx_buffer);
+                    }else if(crc == mycrc && num_seq_impar == 0){//Estoy en modo CRC
+                        sendConfirmation(rx_buffer[0],ACK_SEQUENCE );
+                        enviarTrama(rx_buffer);
+                        nacks_counter=0;
+                    }else if( num_seq_impar == 0 ){
+                        if(nacks_counter > 5){
                             sendConfirmation(rx_buffer[0],ACK_SEQUENCE );
                             enviarTrama(rx_buffer);
-                            nacks_counter=0;
-                        }else if( num_seq_impar == 0 ){
-                            if(nacks_counter > 5){
-                                sendConfirmation(rx_buffer[0],ACK_SEQUENCE );
-                                enviarTrama(rx_buffer);
-                                nacks_counter =0;
-                            }else{
-                                sendConfirmation(rx_buffer[0],NACK_SEQUENCE );
-                                nacks_counter++;
-                            }
+                            nacks_counter =0;
+                        }else{
+                            sendConfirmation(rx_buffer[0],NACK_SEQUENCE );
+                            nacks_counter++;
                         }
                     }
                 }
-                estado=buscando;
-            }break;
-        }
+            }
+            estado=buscando;
+        }break;
     }
+
+
+}
+
+void serialTask(void *pvParameters) {
+
+    unsigned char init_state = 0xFF;
+
+
+    ESP_LOGI("SerialTask","Start");
+
+    for(;;){
+
+        if(read_register(MODO_CRC_ENABLED)!=0XFF){
+            if(read_register(MODO_CRC_ENABLED)==1){
+                ESP_LOGI("Entrando a menu config","");
+                //Si  configurarAntena devuelve 0 es que sigue procesando datos
+            for(;;){
+                    init_state = configurarAntena();
+                    if(init_state!=0)
+                        break;
+                }
+                
+            }
+            break;
+        }else{
+            vTaskDelay(pdMS_TO_TICKS(50));
+        }
+
+    }
+
+
+    ESP_LOGI("SerialTask","Fin");
+
+
+
+    for(;;){
+        leerTramas(init_state);
+    }
+
+
+
 
 }
 
@@ -475,12 +542,7 @@ void initUartAntena(){
         return;
     }
 
-    if(configurarAntena()!=true){
-        write_register(ANTENA_CONFIG_STATE,STATE_FAIL);
-        if(read_register(FLAG_DEBUG_0))ESP_LOGE("SerialTask", "Uart antena error al configurar la antena");
-    }else{
-        ESP_LOGI("SerialTask", "Uart antena configurada correctamente");
-    }
+
 
 }
 
@@ -573,10 +635,175 @@ void sendConfirmation(uint8_t num_seq, uint8_t confirmation_character) {
     uart_write_bytes(UART_DEBUG,  (const char*)buffer, 8);
 }
 
-bool configurarAntena(){
 
-    ESP_LOGI("CONFIGURANDO ANTENA","NO HICE NADA");
-    return true;
+
+typedef enum : uint8_t {
+    esperando_Model = 0x01,
+    esperando_Copy    = 0x02,
+    esperando_Done1 =0x03,
+    esperando_Done2 =0x04,
+    esperando_DoneCRC=0x05,
+    esperando_Done3=0x06    //Aca espero la confirmacion de que entre en modo reader
+    
+} state_antena;
+
+
+
+unsigned char configurarAntena(){
+
+
+    static uint8_t rx_buffer[MAX_UART_BUFFER_SIZE];
+    static uint8_t aux=0;
+    static bool reciviendo_datos=false;
+    static bool carrier_return_received=false;
+    static int len = 0;
+    static bool init =true;
+    static state_uart estado = buscando;
+    static state_antena configuracion = esperando_Model;
+    static uint8_t nacks_counter =0;
+    static uint8_t num_seq_impar=0;
+    static uint16_t contador_timeout=0;
+    static uint8_t resto[MAX_UART_BUFFER_SIZE];
+    static int resto_len = 0;   // bytes sobrantes de la lectura anterior
+    static int pre_len = 0;     // bytes ya cargados en rx_buffer desde 'resto'
+    static bool contador_vencido=false;
+   /*     
+    bool flag_init=false;
+    if(flag_init!=true){
+        start_timeout();
+    }
+        */
+    switch(estado){
+        case buscando:{
+            if(resto_len > 0){
+                // Busco el '#' dentro de lo sobrante
+                int i = 0;
+                while(i < resto_len && resto[i] != START_CHARACTER) i++;
+                if(i < resto_len){
+                    pre_len = resto_len - i - 1;           // datos posteriores al '#'
+                    memcpy(rx_buffer, &resto[i+1], pre_len);
+                    resto_len = 0;
+                    estado = mensaje;
+                    break;                                 // no leo la UART este ciclo
+                }
+                resto_len = 0;                             // sin '#': descarto
+            }
+            len = myReadUart(UART_ANTENA,rx_buffer,1,10);
+            if(len==1 && rx_buffer[0]==START_CHARACTER){
+                estado = mensaje;
+            }else if(contador_vencido!=true){
+                contador_timeout++;
+                if(contador_timeout>300){//Ejecuto el cambio de estado forzado una sola vez
+                    contador_timeout=0;
+                    myWriteUart(UART_ANTENA, MENSAJE_MODO_READER, strlen(MENSAJE_MODO_READER));
+                    ESP_LOGI("Configurando", "Vencio el timeout, envie modo read y quedo en esperando done3"); 
+                    configuracion=esperando_Done3;
+                    contador_vencido=true;
+                    init=false;
+
+                }
+            }
+
+        }break;
+        case mensaje:{
+                int n = myReadUart(UART_ANTENA, rx_buffer + pre_len,
+                                MAX_UART_BUFFER_SIZE - pre_len, 100);
+                len = (n > 0) ? pre_len + n : pre_len;
+                pre_len = 0;
+                if(len>0){
+                
+                bool es_estado_done = (configuracion == esperando_Done1 ||
+                                    configuracion == esperando_Done2 ||
+                                    configuracion == esperando_DoneCRC);
+
+                uint8_t size = buscarFinDeLinea(rx_buffer, len, es_estado_done ? "\r\n" : "\r");
+                    if(size>1 && size<255){
+
+                        // Guardo lo que venga después del terminador para el próximo ciclo
+                        int fin = size + (es_estado_done ? 2 : 1);
+                        if(len > fin){
+                            resto_len = len - fin;
+                            memcpy(resto, rx_buffer + fin, resto_len);
+                        }
+
+                        rx_buffer[size] = 0;
+                        if(init==true || configuracion == esperando_Done3){//Me fijo si tengo que configurar la antena en un cierto modo( con CRC o sin CRC)
+                            if((rx_buffer[0]=='0' && rx_buffer[1]=='M')){
+                                //Pisa el valor de la SD
+                                    write_register(MODO_CRC_ENABLED,1);
+                                    ESP_LOGI("Configuracion","La antena ya estaba en modo CRC");
+                                    return 1;
+                            }
+                            init=false;
+                            //La antena ya esta configurada
+                            
+                        }
+
+                    switch(configuracion){
+                        case esperando_Model:{
+                            
+                            //if(timeout_on!=true) start_timeout(configuracion);
+                            if (strncmp((const char*)rx_buffer, PREFIJO_MODEL, sizeof(PREFIJO_MODEL) - 1) == 0) {
+                                configuracion=esperando_Copy;
+                                ESP_LOGI("Configurando", "Esperando copy");    
+                                //timeout_on=false;
+                                //stop_timeout();
+                            }
+                        }break;
+                        case esperando_Copy:{
+                            ESP_LOGI("Configuracion", "entre a copy"); 
+                            if (strncmp((const char*)rx_buffer, PREFIJO_COPY, sizeof(PREFIJO_COPY) - 1) == 0) {
+                                myWriteUart(UART_ANTENA, MENSAJE_MODO_ERRORES, strlen(MENSAJE_MODO_ERRORES));
+                                ESP_LOGI("Configurando", "Esperando done1"); 
+                                configuracion=esperando_Done1;
+                            }
+                        }break;
+                        case esperando_Done1:{
+                            if (strncmp((const char*)rx_buffer, MENSAJE_DONE, sizeof(MENSAJE_DONE) - 1) == 0) {
+                                myWriteUart(UART_ANTENA, MENSAJE_2, strlen(MENSAJE_2));
+                                ESP_LOGI("Configurando", "Esperando done2"); 
+                                configuracion=esperando_Done2;
+                            }
+
+                        }break;
+                        case esperando_Done2:{
+                            if (strncmp((const char*)rx_buffer, MENSAJE_DONE, sizeof(MENSAJE_DONE) - 1) == 0) {
+                                myWriteUart(UART_ANTENA, MENSAJE_SALIR_MODO_CONFIG, strlen(MENSAJE_SALIR_MODO_CONFIG));
+                                ESP_LOGI("Configurando", "Esperando doneDRC"); 
+                                configuracion=esperando_DoneCRC;
+                            }
+
+                        }break;
+                        case esperando_DoneCRC:{
+                            if (strncmp((const char*)rx_buffer, MENSAJE_DONE_CRC, sizeof(MENSAJE_DONE_CRC) - 1) == 0) {
+                                ESP_LOGI("Configurando", "terminada"); 
+                                return 1;
+                            }
+                        }break;
+
+                        case esperando_Done3:{
+                            if (strncmp((const char*)rx_buffer, MENSAJE_DONE, sizeof(MENSAJE_DONE) - 1) == 0) {
+                                myWriteUart(UART_ANTENA, MENSAJE_MODO_ERRORES, strlen(MENSAJE_MODO_ERRORES));
+                                ESP_LOGI("Configurando", "Esperando done1 desde done3"); 
+                                configuracion=esperando_Done1;
+                            }
+                        }
+                    }
+                }
+            estado=buscando;
+            }
+        }break;
+    }
+
+    return 0;
+}
+
+int myWriteUart(uart_port_t uart_num, const void* src, size_t size){
+
+
+    uart_write_bytes(UART_BRIDGE, src, size);
+    uart_write_bytes(UART_DEBUG, src, size);
+    return uart_write_bytes(UART_ANTENA, src, size);
 }
 
 
@@ -849,14 +1076,20 @@ void transmitUartBridgeTASK(void* pvParameters){
 
 
 
-uint8_t buscarFinDeLinea(const uint8_t *data, uint8_t size)
+#include <string.h>
+
+uint8_t buscarFinDeLinea(const uint8_t *data, uint8_t size, const char *fin)
 {
-    if (data == NULL || size < 2)
+    if (data == NULL || fin == NULL)
+        return 0;
+
+    size_t fin_len = strlen(fin);
+    if (fin_len == 0 || size < fin_len)
         return 0;
 
     uint8_t pos = 0;
-    for (int i = 0; i < size - 1; i++) {
-        if (data[i] == '\r' && data[i + 1] == '\n') {
+    for (int i = 0; i <= (int)(size - fin_len); i++) {
+        if (memcmp(&data[i], fin, fin_len) == 0) {
             pos = i;
             break;
         }

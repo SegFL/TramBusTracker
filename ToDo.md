@@ -13,3 +13,5 @@ En digitalOuptus se esta copiando la entrada de los sensores inductivos en la sa
 
 No se cambio la frecuencia del clock, fijarse si cambia en la temrinal al iniciar
 
+#Cuand estoy en modo CRC tengo que esperar el timeout , ignorar el #00 de la retransmision
+que envie la antena y esperar a que se reenvie el #Model... para recien ahi poder ver en que estado estoy

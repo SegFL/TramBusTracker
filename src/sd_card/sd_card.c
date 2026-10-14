@@ -251,7 +251,7 @@ void leer_archivo_ram(FILE* file){
     }
 
     int64_t t_end = esp_timer_get_time();
-
+/*
 
     if(read_register(FLAG_DEBUG_0)!=0){
         ESP_LOGI("PERF", "Tiempo de carga desde SD a RAM: %lld us (%u lineas)", (t_end - t_start), total_lineas_ram);
@@ -260,6 +260,7 @@ void leer_archivo_ram(FILE* file){
         }
 
     }
+        */
 
 }
 #endif
