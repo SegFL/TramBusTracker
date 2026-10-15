@@ -425,17 +425,6 @@ void printDataNames(void)
     moveCursor(i++, 1);
     writeSerialCom("ANTENA_CONFIG_STATE");
 
-    /* ---------------- PERIFERICOS ---------------- */
-    i++;    // linea en blanco
-    moveCursor(i++, 1);
-    writeSerialCom("--- PERIFERICOS -----------------------------");
-
-    moveCursor(i++, 1);
-    writeSerialCom("LEDS_DRIVER_STATE");
-
-    moveCursor(i++, 1);
-    writeSerialCom("USER_INTERFACE_STATE");
-
     /* ---------------- SD ---------------- */
     i++;    // linea en blanco
     moveCursor(i++, 1);
@@ -473,16 +462,16 @@ void printDataNames(void)
     writeSerialCom("DIGITAL_OUTPUTS_STATE");  
 
     moveCursor(i++, 1); 
-    writeSerialCom("DO_1_STATE");           
+    writeSerialCom("DO_1_STATE-Opto(Controlador)");           
 
     moveCursor(i++, 1); 
-    writeSerialCom("DO_2_STATE");   
+    writeSerialCom("DO_2_STATE-Opto(Controlador)");   
 
     moveCursor(i++, 1); 
-    writeSerialCom("DO_3_STATE-Rele");
+    writeSerialCom("DO_3_STATE-Rele(Antena)");
 
     moveCursor(i++, 1); 
-    writeSerialCom("DO_4_STATE-Rele");   
+    writeSerialCom("DO_4_STATE-Rele(Antena)");   
 
     /* ---------------- TRAMBUS ---------------- */
     i++;    // linea en blanco
@@ -548,16 +537,6 @@ void printDataValues(void)
     snprintf(buffer, sizeof(buffer), "%u", read_register(ANTENA_CONFIG_STATE));
     writeSerialCom(buffer);
 
-    /* ---------------- PERIFERICOS ---------------- */
-    i += 2; // linea en blanco + fila del titulo
-
-    moveCursor(i++, 35);
-    snprintf(buffer, sizeof(buffer), "%u", read_register(LEDS_DRIVER_STATE));
-    writeSerialCom(buffer);
-
-    moveCursor(i++, 35);
-    snprintf(buffer, sizeof(buffer), "%u", read_register(USER_INTERFACE_STATE));
-    writeSerialCom(buffer);
 
     /* ---------------- SD ---------------- */
     i += 2; // linea en blanco + fila del titulo
