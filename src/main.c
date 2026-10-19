@@ -31,10 +31,7 @@
 //Si pongo 128 provoca un stackoverflow y no se porque
 #define MAX_UART_BUFFER_SIZE 80         //Cantidad de bytes que lee la UART antena cada vez
 
-//Secuencia de debug 
-#define ESC_CHAR       0x1B
-#define ESC_REQUIRED   3
-#define ESC_TIMEOUT_US (3000 * 1000) // 2 segundos
+
 bool debugConsoleEnabled=false; 
 
 
@@ -72,10 +69,11 @@ void TAGFileTask(void* pvParameters);
 void userTask(void* pvParameters);
 void digitalInputsTask(void* pvParameters);
 void digitalOutputsTask(void* pvParameters);
-void IOTask(void* pvParameters);
 void ledsDriverTask(void*pvParameters);
 void transmitUartBridgeTASK(void* pvParameters);
 void leerSensorInductivoTask(void* pvParameters);
+void ledAntenaConfiguradaTask(void* pvParameters);
+
 
 /*
 ---------------------------Funciones privadas 
@@ -141,8 +139,8 @@ void app_main() {
     //Primero necestio los pine sdigital habilitados porque los uso para ver si inicilizo la sd card o no
 
     //Escribo el registro en un modo indeterminado para que se sobreescriba luegos
-    write_register(MODO_CRC_ENABLED,0xff);
-
+    write_register(MODO_CRC_ENABLED,0xFF);
+    write_register(ANTENA_INITIALIZED,0XFF);
     xTaskCreate(digitalInputsTask,"digitalTask",2*1024,NULL,1,NULL);
 
     xTaskCreate(transmitUartBridgeTASK,"BRIDGETASK",2048,NULL,1,NULL);
@@ -178,6 +176,7 @@ void app_main() {
         ESP_LOGE("MAIN", "Error al crear la cola de mensajes entre SerialTask y TAGTask.");
     }
 
+    xTaskCreate(ledAntenaConfiguradaTask,"ledAntenaConfiguradaTask",1024,NULL,2,NULL);
     if(debugConsoleEnabled==true)
         xTaskCreate(userTask,"userTask",2*2048,NULL,3,NULL);
 
@@ -395,11 +394,11 @@ void serialTask(void *pvParameters) {
             if(read_register(MODO_CRC_ENABLED)==1){
                 ESP_LOGI("Entrando a menu config","");
                 //Si  configurarAntena devuelve 0 es que sigue procesando datos
-            for(;;){
-                    init_state = configurarAntena();
-                    if(init_state!=0)
-                        break;
-                }
+                for(;;){
+                        init_state = configurarAntena();
+                        if(init_state!=0)
+                            break;
+                    }
                 
             }
             break;
@@ -412,6 +411,8 @@ void serialTask(void *pvParameters) {
 
     ESP_LOGI("SerialTask","Fin");
 
+    //Si sali del bucle de configuracion inicializo el registro correspondiente
+    write_register(ANTENA_INITIALIZED,1);
 
 
     for(;;){
@@ -609,7 +610,6 @@ Envia un mensaje de confirmacion( NACK / ACK ) segun el caracter enviado como co
 
 void sendConfirmation(uint8_t num_seq, uint8_t confirmation_character) {
     uint8_t buffer[8];
-
     // Calculo el crc
     buffer[0]='#';
     buffer[1] = num_seq;
@@ -618,7 +618,16 @@ void sendConfirmation(uint8_t num_seq, uint8_t confirmation_character) {
     buffer[4] =0x60;
     buffer[5] =0x60;
     buffer[6] =0x60;
+/*
+
+    uint16_t crc = calccrc(buffer); // CRC calculado sobre seq + confirmation_character
+    buffer[3] = val_to_hexchar(crc >> 12);  // bits 15..12
+    buffer[4] = val_to_hexchar(crc >> 8);   // bits 11..8
+    buffer[5] = val_to_hexchar(crc >> 4);   // bits 7..4
+    buffer[6] = val_to_hexchar(crc);        // bits 3..0
+*/
     buffer[7] =0x0D;
+
 
    // buffer[2] = 0;
     /*uint16_t crc = calccrc(buffer); // CRC calculado sobre seq + confirmation_character
@@ -1109,11 +1118,12 @@ void actualizarSensorInductivo(){
     unsigned char cambio=0,val=0;
     if(read_register(MODO_INDUCTIVO_ENABLED)==0){
         write_register(DO_3_STATE,1);
-        write_register(DO_4_STATE,0);
+        //El segundo rele se fuerza de otra forma ahora
+        //write_register(DO_4_STATE,0);
 
     }else{
 
-        for(int i=0;i<2;i++)
+        for(int i=0;i<1;i++)
         {
             val=read_register(DI_1_STATE+i);
             if(val==1)
@@ -1143,4 +1153,15 @@ void leerSensorInductivoTask(void* pvParameters){
         vTaskDelay(pdMS_TO_TICKS(50));
     }
 
+}
+
+
+void ledAntenaConfiguradaTask(void* pvParameters){
+
+    for(;;){
+        
+        if(read_register(ANTENA_INITIALIZED)!=0xFF)
+            write_register(DO_4_STATE,1);
+        vTaskDelay(pdMS_TO_TICKS(200));
+    }
 }

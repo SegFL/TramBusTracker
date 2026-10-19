@@ -88,4 +88,4 @@
 //Secuencia de debug 
 #define ESC_CHAR       0x1B
 #define ESC_REQUIRED   3
-#define ESC_TIMEOUT_US (2000 * 1000) // 2 segundos
+#define ESC_TIMEOUT_US (3000 * 1000) // 3 segundos

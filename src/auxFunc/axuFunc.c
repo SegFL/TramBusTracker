@@ -74,6 +74,13 @@ uint8_t hexchar_to_val(uint8_t c) {
     return (rta&0x0f);              
 }
 
+static const char hex_lut[16] = "0123456789ABCDEF";
+
+uint8_t val_to_hexchar(uint8_t v) {
+    return hex_lut[v & 0x0F];
+}
+
+
 
 
 /*
