@@ -137,3 +137,16 @@ sequenceDiagram
         UI->>Handlers: onUpdateNode / autoUpdate(currentNode)
     end
 ```
+
+
+
+
+#Cambios
+
+26/10/2026 - V1.1.0
+    La idea es agregar el modo MUTE. 
+
+        •	Si MUTE=0 o no existe, que el programa siga ejecutándose como siempre.
+        •	SI MUTE=1, que la ESP32 no haga nada con la antena. Solamente que quede funcionando la  consola RS232. (Lo pienso útil, por si se quiere configurar, y no se quiere que la ESP32 envie o haga absolutamente nada). Con esta funcionalidad, la ESP32 debería de quedar funcionando como na ADAM4520.
+        o	Lo que viene del RS422-> se envía al puerto RS232
+        o	Lo que viene del puerto RS232-> se envía al puerto RS422.

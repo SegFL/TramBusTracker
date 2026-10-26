@@ -35,6 +35,7 @@ enum data {
     DO_4_FORCED_STATE,      //Rele
     MODO_INDUCTIVO_ENABLED, //1 activado, 0 desactivado
     MODO_CRC_ENABLED,        //1 activado, 0 desactivado
+    MODO_MUTE,              //Si esta en 1 el codigo solo funciona como puente 232-422
     ANTENA_INITIALIZED,
     DIM_DATOS
 };

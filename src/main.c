@@ -141,14 +141,17 @@ void app_main() {
     //Escribo el registro en un modo indeterminado para que se sobreescriba luegos
     write_register(MODO_CRC_ENABLED,0xFF);
     write_register(ANTENA_INITIALIZED,0XFF);
-    xTaskCreate(digitalInputsTask,"digitalTask",2*1024,NULL,1,NULL);
-
-    xTaskCreate(transmitUartBridgeTASK,"BRIDGETASK",2048,NULL,1,NULL);
-
-  
-
+    write_register(MODO_MUTE,0XFF);
     //Aca ya inicilizo la sd y la configuracion de config.txt
     xTaskCreate(TAGFileTask,"TAGFileTask",2*8192,NULL,1,NULL);
+
+
+
+
+    xTaskCreate(digitalInputsTask,"digitalTask",2*1024,NULL,1,NULL);
+
+
+
     
     // 1. Crear la cola con espacio para 10 paquetes
     xQueueMsg = xQueueCreate(10, sizeof(PaqueteMensaje_t));
@@ -162,6 +165,22 @@ void app_main() {
     //Pongo un delay para evitar que se impriman mensajes del 
     //menu antes de que se terminene de inicializar el resto de las tareas
     xTaskCreate(ledsDriverTask,"userTask",2*2048,NULL,3,NULL);
+
+
+    //Espero 1 segundo hasta que se halla leido la SD, si no se llego a leer el modo MUTE no va a funcionar
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    //...Que pasa si no habia SD cuando iniciaba? Nunca va a entrar en modo MUTE 
+    xTaskCreate(transmitUartBridgeTASK,"BRIDGETASK",2048,NULL,1,NULL);
+    //Si estoy en modo MUTE solo necesito inicilizar la SD, las UARTS y la tarea TAG_
+    if(read_register(MODO_MUTE)==1){
+        static uint8_t rx_buffer[MAX_UART_BUFFER_SIZE];
+        while(1){
+            //Me quedo retransmitiendo lo de la antena,
+            myReadUart(UART_ANTENA,rx_buffer,1,10);
+        }
+            
+    }
+
     xTaskCreate(leerSensorInductivoTask,"leerSensorInductivo",1024,NULL,1,NULL);
 
 
@@ -224,7 +243,7 @@ void TAGFileTask(void* pvParameters){
                 write_register(MODO_INDUCTIVO_ENABLED,0);
             }break;
         }
-        vTaskDelay(pdMS_TO_TICKS(10000));
+        vTaskDelay(pdMS_TO_TICKS(100));
 
     }
 /*
@@ -986,6 +1005,15 @@ void cargarArchivoConfiguracion(){
         ESP_LOGI("MAIN", "MODO CRC DESHABILITADO");
     }
 
+    int mute_state = buscarConfiguracion("CONFIG.TXT", "MODO_MUTE");
+    if(mute_state>0){
+        write_register(MODO_MUTE,1);
+        ESP_LOGI("MAIN", "MODO MUTE HABILITADO");
+    }else{
+        write_register(MODO_MUTE,0);
+        ESP_LOGI("MAIN", "MODO MUTE DESHABILITADO");
+    }
+
 
 
 
@@ -1064,16 +1092,21 @@ void transmitUartBridgeTASK(void* pvParameters){
     //Buffer para el bridge ANTENA(422)-BRIDGE(232)
     uint8_t rx_buffer_2[MAX_UART_BUFFER_SIZE];
 
+    bool debug_state=true;
 
     initUartAntena();
     initUartBridge();
 
 
     for(;;){
-        int len2 = uart_read_bytes(UART_BRIDGE,rx_buffer_2,sizeof(rx_buffer_2),pdMS_TO_TICKS(100));
+        int len2 = uart_read_bytes(UART_BRIDGE,rx_buffer_2,sizeof(rx_buffer_2),pdMS_TO_TICKS(50));
         if(len2>0){
             uart_write_bytes(UART_ANTENA,(const char *)rx_buffer_2,len2);
-            uart_write_bytes(UART_DEBUG,(const char *)rx_buffer_2,len2);
+            if(debug_state==true){
+                if(uart_write_bytes(UART_DEBUG,(const char *)rx_buffer_2,len2)<0)
+                    debug_state=false;
+
+            }
         }
 
 

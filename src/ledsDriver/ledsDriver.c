@@ -128,14 +128,19 @@ void updateStates(){
     //ciclo del led
             
     
-
+    if(read_register(MODO_MUTE)==1){
+            leds[1].titilante_flag=true;
+            leds[1].periodo = LED_TAG_BASE_PERIOD*4;//Titila lento
+    }else{  //Si no estoy en modo MUTE tiene sentido fijarse el tema de las TAGS
         if(read_register(TAGS_BUSCANDO_SD)==0){
             leds[1].titilante_flag=false;
             leds[1].led_value=false;
         }else{  
             leds[1].titilante_flag=true;
             leds[1].periodo = LED_TAG_BASE_PERIOD;
-        }
+        } 
+    }
+
 
 
     
