@@ -20,9 +20,7 @@
 #include "../defines.h"
 
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+
 
 esp_err_t initUart();
 void sendUartDataln(const uint8_t* data, size_t len) ;
@@ -35,8 +33,5 @@ void updateUartBuffers();
 
 void printFormat(const char* format, ...);
 
-#ifdef __cplusplus
-}
-#endif
 
 #endif // SERIAL_COM_H

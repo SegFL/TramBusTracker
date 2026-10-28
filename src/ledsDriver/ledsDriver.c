@@ -3,7 +3,7 @@
 // y decidir que led hacer titilar y a que velocidad
 #include "ledsDriver.h"
 
-#define cantidadleds 2
+#define cantidadleds 3
 #define PERIODO_BASE_LEDS 20
 
 void updateStates();
@@ -85,13 +85,31 @@ unsigned char ledsDriverUpdate(){
 
         }
 
+
         gpio_set_level(register_[i],!leds[i].led_value);
     }
     //El led de run se actualiza aparte
-    gpio_set_level(LED_RUN,read_register(LEDRUN_STATE));
+    //gpio_set_level(LED_RUN,read_register(LEDRUN_STATE));
 
 
-    
+    if(leds[cantidadleds-1].titilante_flag==true){
+        if(leds[cantidadleds-1].contador==0){
+            leds[cantidadleds-1].led_value = !leds[cantidadleds-1].led_value;
+            leds[cantidadleds-1].contador=leds[cantidadleds-1].periodo;
+            if(leds[cantidadleds-1].led_value==1){
+                //write_register(DO_2_STATE,1);
+                write_register(LEDRUN_STATE,1);
+
+            }else{
+                //write_register(DO_2_STATE,0);
+                write_register(LEDRUN_STATE,0);
+
+
+            }
+        }
+        leds[cantidadleds-1].contador--;
+
+    }
 
 
     //La idea es sincronizar los cambios de estado/titilante para que titilen todos juntos
@@ -140,6 +158,19 @@ void updateStates(){
             leds[1].periodo = LED_TAG_BASE_PERIOD;
         } 
     }
+
+
+    if(read_register(ANTENA_INITIALIZED==0xFF)){
+        leds[2].titilante_flag=false;
+        leds[2].led_value=true;
+    }else if(read_register(ANTENA_INITIALIZED==0x01)){
+        leds[2].titilante_flag=true;
+        leds[2].periodo = LED_TAG_BASE_PERIOD*8;//Titila lento
+    }else if(read_register(ANTENA_INITIALIZED==0x02)){
+        leds[2].titilante_flag=true;
+        leds[2].periodo = LED_TAG_BASE_PERIOD;//Titila rapido
+    }
+   
 
 
 

@@ -46,6 +46,19 @@ typedef enum : uint8_t {
     MSG_TYPE_ALARMA    = 0x03,
     MSG_TYPE_CONFIG    = 0x04
 } type_msg;
+
+/*Maquina de estados para la configuracion de la antena*/
+typedef enum : uint8_t {
+    esperando_Model = 0x01,
+    esperando_Copy    = 0x02,
+    esperando_Done1 =0x03,
+    esperando_Done2 =0x04,
+    esperando_DoneCRC=0x05,
+    esperando_Done3=0x06    //Aca espero la confirmacion de que entre en modo reader
+    
+} state_antena;
+
+
 // 2. Estructura del paquete
 typedef struct {
     type_msg tipo;                      // 1 byte
@@ -142,20 +155,21 @@ void app_main() {
     write_register(MODO_CRC_ENABLED,0xFF);
     write_register(ANTENA_INITIALIZED,0XFF);
     write_register(MODO_MUTE,0XFF);
+
+
+    xTaskCreate(digitalInputsTask,"digitalTask",2*1024,NULL,1,NULL);
+
+
     //Aca ya inicilizo la sd y la configuracion de config.txt
     xTaskCreate(TAGFileTask,"TAGFileTask",2*8192,NULL,1,NULL);
 
 
 
 
-    xTaskCreate(digitalInputsTask,"digitalTask",2*1024,NULL,1,NULL);
 
 
 
     
-    // 1. Crear la cola con espacio para 10 paquetes
-    xQueueMsg = xQueueCreate(10, sizeof(PaqueteMensaje_t));
-
 
 
 
@@ -166,11 +180,10 @@ void app_main() {
     //menu antes de que se terminene de inicializar el resto de las tareas
     xTaskCreate(ledsDriverTask,"userTask",2*2048,NULL,3,NULL);
 
-
+    xTaskCreate(transmitUartBridgeTASK,"BRIDGETASK",2048,NULL,1,NULL);
     //Espero 1 segundo hasta que se halla leido la SD, si no se llego a leer el modo MUTE no va a funcionar
     vTaskDelay(pdMS_TO_TICKS(1000));
-    //...Que pasa si no habia SD cuando iniciaba? Nunca va a entrar en modo MUTE 
-    xTaskCreate(transmitUartBridgeTASK,"BRIDGETASK",2048,NULL,1,NULL);
+    
     //Si estoy en modo MUTE solo necesito inicilizar la SD, las UARTS y la tarea TAG_
     if(read_register(MODO_MUTE)==1){
         static uint8_t rx_buffer[MAX_UART_BUFFER_SIZE];
@@ -182,6 +195,9 @@ void app_main() {
     }
 
     xTaskCreate(leerSensorInductivoTask,"leerSensorInductivo",1024,NULL,1,NULL);
+    // 1. Crear la cola con espacio para 10 paquetes
+    xQueueMsg = xQueueCreate(10, sizeof(PaqueteMensaje_t));
+
 
 
     if (xQueueMsg != NULL) {
@@ -203,12 +219,11 @@ void app_main() {
 
     
 
-    digitalOutputsInit();
 
 
     while(1){
 
-        write_register(LEDRUN_STATE,read_register(LEDRUN_STATE)^0x01);
+        //write_register(LEDRUN_STATE,read_register(LEDRUN_STATE)^0x01);
         vTaskDelay(pdMS_TO_TICKS(300));
     }
 }
@@ -246,41 +261,7 @@ void TAGFileTask(void* pvParameters){
         vTaskDelay(pdMS_TO_TICKS(100));
 
     }
-/*
-
-    //Intento inicializar la SD, si falla se queda intentnado en un bucle infinito
-    while(1){
-        if (TAGInit() == true) {
-            break; // SD y Archivo inicializados con éxito
-        }
-        if (read_register(FLAG_DEBUG_0) != 0) {
-            ESP_LOGE("MAIN", "Error al inicializar la SD. Reintentando en 3s...");
-        }      
-        vTaskDelay(pdMS_TO_TICKS(3000));
-    }
-
  
-
-
-
-    
-
-
-    while(1){
-        // Si la SD o el archivo entraron en estado de fallo (por ejemplo, al extraer la SD)
-        if (read_register(SD_STATE) != STATE_OK || read_register(SD_FILE) != STATE_OK) {
-            if (read_register(FLAG_DEBUG_0) != 0) {
-                ESP_LOGW("MAIN", "Fallo detectado en SD/Archivo. Intentando re-inicializar...");
-            }
-            
-            // Reintentar reconexión limpia
-            TAGInit();
-        }
-            
-        vTaskDelay(pdMS_TO_TICKS(1000));
-    }
-
-*/
 }
 bool TAGInit(){
     bool sd = false, file = false;
@@ -413,6 +394,7 @@ void serialTask(void *pvParameters) {
             if(read_register(MODO_CRC_ENABLED)==1){
                 ESP_LOGI("Entrando a menu config","");
                 //Si  configurarAntena devuelve 0 es que sigue procesando datos
+                write_register(ANTENA_INITIALIZED,0x02);
                 for(;;){
                         init_state = configurarAntena();
                         if(init_state!=0)
@@ -431,7 +413,7 @@ void serialTask(void *pvParameters) {
     ESP_LOGI("SerialTask","Fin");
 
     //Si sali del bucle de configuracion inicializo el registro correspondiente
-    write_register(ANTENA_INITIALIZED,1);
+    write_register(ANTENA_INITIALIZED,0x01);
 
 
     for(;;){
@@ -665,15 +647,6 @@ void sendConfirmation(uint8_t num_seq, uint8_t confirmation_character) {
 
 
 
-typedef enum : uint8_t {
-    esperando_Model = 0x01,
-    esperando_Copy    = 0x02,
-    esperando_Done1 =0x03,
-    esperando_Done2 =0x04,
-    esperando_DoneCRC=0x05,
-    esperando_Done3=0x06    //Aca espero la confirmacion de que entre en modo reader
-    
-} state_antena;
 
 
 
@@ -695,12 +668,8 @@ unsigned char configurarAntena(){
     static int resto_len = 0;   // bytes sobrantes de la lectura anterior
     static int pre_len = 0;     // bytes ya cargados en rx_buffer desde 'resto'
     static bool contador_vencido=false;
-   /*     
-    bool flag_init=false;
-    if(flag_init!=true){
-        start_timeout();
-    }
-        */
+
+    
     switch(estado){
         case buscando:{
             if(resto_len > 0){
@@ -886,7 +855,7 @@ void ledsDriverTask(void*pvParameters){
     for(;;){
         if(read_register(LEDS_DRIVER_STATE)==STATE_OK)
             ledsDriverUpdate();
-        vTaskDelay(pdMS_TO_TICKS(50));
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
 
@@ -1118,7 +1087,6 @@ void transmitUartBridgeTASK(void* pvParameters){
 
 
 
-#include <string.h>
 
 uint8_t buscarFinDeLinea(const uint8_t *data, uint8_t size, const char *fin)
 {
