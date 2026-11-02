@@ -18,10 +18,10 @@ static const char *TAG = "SD_CARD";
 //#define LEER_ARCHIVO_RAM
 
 #define MAX_TAG_LENGTH 64
-
+#define CANTIDAD_MAX_TAGS_RAM  1000
 #ifdef LEER_ARCHIVO_RAM
-    // Buffer de 200 TAGS de como máximo MAX_TAG_LENGTH caracteres
-    char buffer[200][MAX_TAG_LENGTH];
+    // Buffer de CANTIDAD_MAX_TAGS_RAM TAGS de como máximo MAX_TAG_LENGTH caracteres
+    char buffer[CANTIDAD_MAX_TAGS_RAM][MAX_TAG_LENGTH];
     uint16_t total_lineas_ram = 0;
     void leer_archivo_ram(FILE* file);
 
@@ -213,16 +213,18 @@ bool readTAGFile(const char * name_file){
 void leer_archivo_sd(FILE* file){
     if (file == NULL) return;
 
-    char linea[128];
+    char linea[MAX_TAG_LENGTH];
     int64_t t_start = esp_timer_get_time();
 
+    uint16_t cantidad_lineas = 0;
     while (fgets(linea, sizeof(linea), file) != NULL) {
         linea[strcspn(linea, "\r\n")] = 0;
         if (strlen(linea) == 0) continue;
-
+        cantidad_lineas++;
         if(read_register(FLAG_DEBUG_0)!=0){ESP_LOGI("TAG_FILE", "Nueva linea SD: %s", linea);}
     }
 
+    write_register(TAGS_LEIDOS, cantidad_lineas);
     int64_t t_end = esp_timer_get_time();
     if(read_register(FLAG_DEBUG_0)!=0){ESP_LOGI("PERF", "Tiempo total leyendo e imprimiendo directo desde SD: %lld us\n\r", (t_end - t_start));}
 }
@@ -240,7 +242,7 @@ void leer_archivo_ram(FILE* file){
     // 1. Cargar el archivo completo a la RAM y medir tiempo de transferencia
     int64_t t_start = esp_timer_get_time();
 
-    while (fgets(linea, sizeof(linea), file) != NULL && total_lineas_ram < 200) {
+    while (fgets(linea, sizeof(linea), file) != NULL && total_lineas_ram < CANTIDAD_MAX_TAGS_RAM) {
         linea[strcspn(linea, "\r\n")] = 0;
         if (strlen(linea) == 0) continue;
 
@@ -250,6 +252,8 @@ void leer_archivo_ram(FILE* file){
         total_lineas_ram++;
     }
 
+    write_register(TAGS_LEIDOS, total_lineas_ram);
+    
     int64_t t_end = esp_timer_get_time();
 /*
 

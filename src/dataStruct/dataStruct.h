@@ -37,6 +37,7 @@ enum data {
     MODO_CRC_ENABLED,        //1 activado, 0 desactivado
     MODO_MUTE,              //Si esta en 1 el codigo solo funciona como puente 232-422
     ANTENA_INITIALIZED,
+    TAGS_LEIDOS,
     DIM_DATOS
 };
 

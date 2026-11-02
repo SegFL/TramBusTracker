@@ -436,6 +436,10 @@ void printDataNames(void)
     moveCursor(i++, 1);
     writeSerialCom("SD_FILE");
 
+    moveCursor(i++, 1);
+    writeSerialCom("TAGS_LEIDOS");
+
+
     /* ---------------- ENTRADAS DIGITALES ---------------- */
     i++;    // linea en blanco
     moveCursor(i++, 1);
@@ -549,6 +553,10 @@ void printDataValues(void)
     snprintf(buffer, sizeof(buffer), "%u", read_register(SD_FILE));
     writeSerialCom(buffer);
 
+    moveCursor(i++, 35);
+    snprintf(buffer, sizeof(buffer), "%u", read_register(TAGS_LEIDOS));
+    writeSerialCom(buffer);
+
     /* ---------------- ENTRADAS DIGITALES ---------------- */
     i += 2; // linea en blanco + fila del titulo
 
@@ -625,7 +633,7 @@ void printDataValues(void)
 void printDigiatlOutputsNames(){
 
     
-    int i=1;
+    int i=2;
     moveCursor(i++, 1);
     writeSerialCom("Salida digital 1");
 
@@ -643,7 +651,7 @@ void printDigiatlOutputsNames(){
 void printDigiatlOutputsValue(){
 
     char buffer[20];
-    int i=1;
+    int i=2;
  
     writeSerialCom("\033[s");   // guarda posición actual de la terminal (donde estaba el log normal)
 

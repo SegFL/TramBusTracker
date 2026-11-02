@@ -140,4 +140,6 @@ sequenceDiagram
 
 
 
-
+DETALLES
+-Si estoy en modo RAM para leer la SD tengo un limite de 1000lineas de 64 bytes cada una
+-En modo flash no existe limite pero si se tienen muchos se puede generar un delay al querer buscar en  miles de lineas un solo tag.
