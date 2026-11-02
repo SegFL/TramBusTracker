@@ -59,11 +59,20 @@ bool ledsDriverInit(){
     leds[1].contador = leds[1].periodo;
     leds[1].reg=register_[1];
 
+
+    register_[2]           = LED_RUN;           
+    leds[2].led_value      = true;               // fijo hasta conocer el estado
+    leds[2].titilante_flag = false;
+    leds[2].periodo        = LED_TAG_BASE_PERIOD;
+    leds[2].contador       = leds[2].periodo;
+    leds[2].reg            = register_[2];
+
+    ledsDriverUpdate();
+    return true;   
     
 
     ledsDriverUpdate();
 
-    // Inicialmente lo reflejo en el registro de estados
 
 
     
@@ -72,57 +81,22 @@ bool ledsDriverInit(){
 }
 
 unsigned char ledsDriverUpdate(){
-
     updateStates();
-    //Actualizo los estados de los leds
     for(int i=0;i<cantidadleds;i++){
-        if(leds[i].titilante_flag==true){
+        if(leds[i].titilante_flag){
             if(leds[i].contador==0){
                 leds[i].led_value = !leds[i].led_value;
-                leds[i].contador=leds[i].periodo;
+                leds[i].contador  = leds[i].periodo;
             }
             leds[i].contador--;
-
         }
-
-
-        gpio_set_level(register_[i],!leds[i].led_value);
+        gpio_set_level(register_[i], !leds[i].led_value);   // activo en bajo
     }
-    //El led de run se actualiza aparte
-    //gpio_set_level(LED_RUN,read_register(LEDRUN_STATE));
-
-
-    if(leds[cantidadleds-1].titilante_flag==true){
-        if(leds[cantidadleds-1].contador==0){
-            leds[cantidadleds-1].led_value = !leds[cantidadleds-1].led_value;
-            leds[cantidadleds-1].contador=leds[cantidadleds-1].periodo;
-            if(leds[cantidadleds-1].led_value==1){
-                //write_register(DO_2_STATE,1);
-                write_register(LEDRUN_STATE,1);
-
-            }else{
-                //write_register(DO_2_STATE,0);
-                write_register(LEDRUN_STATE,0);
-
-
-            }
-        }
-        leds[cantidadleds-1].contador--;
-
-    }
-
-
-    //La idea es sincronizar los cambios de estado/titilante para que titilen todos juntos
-
-
-    
- 
-    
-    return 0;
-
-    
-
+    write_register(LEDRUN_STATE, leds[cantidadleds-1].led_value); // si alguien lo lee
+    return 0;                                // bloque duplicado eliminado
 }
+
+
 
 //Se modifican los registros de los leds, se acutalizan periodos de titilante y secuencias
 void updateStates(){
@@ -160,15 +134,19 @@ void updateStates(){
     }
 
 
-    if(read_register(ANTENA_INITIALIZED==0xFF)){
-        leds[2].titilante_flag=false;
-        leds[2].led_value=true;
-    }else if(read_register(ANTENA_INITIALIZED==0x01)){
-        leds[2].titilante_flag=true;
-        leds[2].periodo = LED_TAG_BASE_PERIOD*8;//Titila lento
-    }else if(read_register(ANTENA_INITIALIZED==0x02)){
-        leds[2].titilante_flag=true;
-        leds[2].periodo = LED_TAG_BASE_PERIOD;//Titila rapido
+    unsigned char st = read_register(ANTENA_INITIALIZED);
+    if(st == 0xFF){                 // sin definir: fijo
+        leds[2].titilante_flag = true;
+        leds[2].periodo        = LED_TAG_BASE_ANTENA*4;
+        leds[2].contador==0;
+    }else if(st == 0x02){           // configurando: rápido
+        leds[2].titilante_flag = true;
+        leds[2].periodo        = LED_TAG_BASE_ANTENA/4;
+        leds[2].contador==0;
+    }else if(st == 0x01){           // lista: lento
+        leds[2].titilante_flag = true;
+        leds[2].periodo        = LED_TAG_BASE_ANTENA*2;
+        leds[2].contador==0;
     }
    
 

@@ -35,7 +35,7 @@
 
 #define LED_TAG_STATE GPIO_NUM_21   //Led para saber cuando se esta buscando un TAG en la SD
 #define LED_TAG_BASE_PERIOD 1
-
+#define LED_TAG_BASE_ANTENA 20
 //SPI Pins para la SD
 #define PIN_NUM_MISO 32//14
 #define PIN_NUM_MOSI 25//13

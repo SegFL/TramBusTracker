@@ -11,7 +11,7 @@
 #include <ctype.h>
 #include "sd_card.h"
 
-
+esp_err_t sd_card_deinit(void);
 
 static const char *TAG = "SD_CARD";
 
@@ -261,6 +261,8 @@ void leer_archivo_ram(FILE* file){
 
     }
         */
+    //Una vez leido el archivo deinicilizo la SD para liberar recursos y evitar que se quede bloqueada
+    sd_card_deinit();
 
 }
 #endif
@@ -289,6 +291,8 @@ bool buscarTAG(const char *tag_buscado) {
     }
     if (read_register(FLAG_DEBUG_0) != 0){ESP_LOGW(TAG, "TAG no encontrado en RAM: %s", tag_buscado);}
 
+
+   
     return false;
 
 #else
@@ -441,3 +445,49 @@ int buscarConfiguracion(const char *name_file, const char *config_buscada)
     fclose(f);
     return resultado;
 }
+
+
+
+#include "driver/gpio.h"
+#include "driver/spi_master.h"
+#include "esp_vfs_fat.h"
+
+esp_err_t sd_card_deinit(void)
+{
+    esp_err_t ret = ESP_OK;
+ 
+    /* 1. Marcar la SD como no disponible: buscarTAG() devolvera false limpiamente */
+    write_register(SD_STATE, STATE_FAIL);
+ 
+    /* 2. Desmontar FAT y remover el dispositivo sdspi */
+    if (s_card != NULL) {
+        ret = esp_vfs_fat_sdcard_unmount(MOUNT_POINT, s_card);
+        s_card = NULL;
+        if (ret != ESP_OK && read_register(FLAG_DEBUG_0) != 0) {
+            ESP_LOGW(TAG, "Fallo al desmontar SD: %s", esp_err_to_name(ret));
+        }
+    }
+ 
+    /* 3. Liberar el bus SPI (falla con INVALID_STATE si queda otro dispositivo en el bus) */
+    if (s_bus_initialized) {
+        esp_err_t r = spi_bus_free(SPI2_HOST);
+        if (r == ESP_OK) {
+            s_bus_initialized = false;
+        } else {
+            if (read_register(FLAG_DEBUG_0) != 0) {
+                ESP_LOGW(TAG, "spi_bus_free fallo: %s", esp_err_to_name(r));
+            }
+            ret = r;
+        }
+    }
+ 
+    /* 4. Pines en estado seguro: CS en alto, resto como GPIO por defecto */
+    gpio_set_direction(PIN_NUM_CS, GPIO_MODE_OUTPUT);
+    gpio_set_level(PIN_NUM_CS, 1);
+    gpio_reset_pin(PIN_NUM_CLK);
+    gpio_reset_pin(PIN_NUM_MOSI);
+    gpio_reset_pin(PIN_NUM_MISO);
+ 
+    return ret;
+}
+ 

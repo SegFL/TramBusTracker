@@ -21,7 +21,7 @@
 
 #define PREFIJO_MODEL "Model"
 #define PREFIJO_COPY "Copy"
-#define MENSAJE_MODO_ERRORES "#01\x0D"
+#define MENSAJE_MODO_ERRORES "#01````\x0D"
 #define MENSAJE_MODO_READER "#00\x0D"
 #define MENSAJE_DONE "Done"
 #define MENSAJE_2 "#611\x0D"
@@ -176,7 +176,6 @@ void app_main() {
 
 
     xTaskCreate(digitalOutputsTask,"DOTask",1024,NULL,1,NULL);
-    //Pongo un delay para evitar que se impriman mensajes del 
     //menu antes de que se terminene de inicializar el resto de las tareas
     xTaskCreate(ledsDriverTask,"userTask",2*2048,NULL,3,NULL);
 
@@ -258,7 +257,7 @@ void TAGFileTask(void* pvParameters){
                 write_register(MODO_INDUCTIVO_ENABLED,0);
             }break;
         }
-        vTaskDelay(pdMS_TO_TICKS(100));
+        vTaskDelay(pdMS_TO_TICKS(1000));
 
     }
  
@@ -668,6 +667,7 @@ unsigned char configurarAntena(){
     static int resto_len = 0;   // bytes sobrantes de la lectura anterior
     static int pre_len = 0;     // bytes ya cargados en rx_buffer desde 'resto'
     static bool contador_vencido=false;
+    static uint16_t contador_reenvio=0;
 
     
     switch(estado){
@@ -692,7 +692,7 @@ unsigned char configurarAntena(){
                 contador_timeout++;
                 if(contador_timeout>300){//Ejecuto el cambio de estado forzado una sola vez
                     contador_timeout=0;
-                    myWriteUart(UART_ANTENA, MENSAJE_MODO_READER, strlen(MENSAJE_MODO_READER));
+                    myWriteUart(UART_ANTENA, MENSAJE_MODO_ERRORES, strlen(MENSAJE_MODO_ERRORES));
                     ESP_LOGI("Configurando", "Vencio el timeout, envie modo read y quedo en esperando done3"); 
                     configuracion=esperando_Done3;
                     contador_vencido=true;
@@ -702,7 +702,7 @@ unsigned char configurarAntena(){
             }
 
         }break;
-        case mensaje:{
+            case mensaje:{
                 int n = myReadUart(UART_ANTENA, rx_buffer + pre_len,
                                 MAX_UART_BUFFER_SIZE - pre_len, 100);
                 len = (n > 0) ? pre_len + n : pre_len;
@@ -742,7 +742,8 @@ unsigned char configurarAntena(){
                             //if(timeout_on!=true) start_timeout(configuracion);
                             if (strncmp((const char*)rx_buffer, PREFIJO_MODEL, sizeof(PREFIJO_MODEL) - 1) == 0) {
                                 configuracion=esperando_Copy;
-                                ESP_LOGI("Configurando", "Esperando copy");    
+                                ESP_LOGI("Configurando", "Esperando copy");  
+                                contador_reenvio=0; 
                                 //timeout_on=false;
                                 //stop_timeout();
                             }
@@ -753,6 +754,7 @@ unsigned char configurarAntena(){
                                 myWriteUart(UART_ANTENA, MENSAJE_MODO_ERRORES, strlen(MENSAJE_MODO_ERRORES));
                                 ESP_LOGI("Configurando", "Esperando done1"); 
                                 configuracion=esperando_Done1;
+                                contador_reenvio=0;
                             }
                         }break;
                         case esperando_Done1:{
@@ -760,6 +762,7 @@ unsigned char configurarAntena(){
                                 myWriteUart(UART_ANTENA, MENSAJE_2, strlen(MENSAJE_2));
                                 ESP_LOGI("Configurando", "Esperando done2"); 
                                 configuracion=esperando_Done2;
+                                contador_reenvio=0;
                             }
 
                         }break;
@@ -768,12 +771,14 @@ unsigned char configurarAntena(){
                                 myWriteUart(UART_ANTENA, MENSAJE_SALIR_MODO_CONFIG, strlen(MENSAJE_SALIR_MODO_CONFIG));
                                 ESP_LOGI("Configurando", "Esperando doneDRC"); 
                                 configuracion=esperando_DoneCRC;
+                                contador_reenvio=0;
                             }
 
                         }break;
                         case esperando_DoneCRC:{
                             if (strncmp((const char*)rx_buffer, MENSAJE_DONE_CRC, sizeof(MENSAJE_DONE_CRC) - 1) == 0) {
                                 ESP_LOGI("Configurando", "terminada"); 
+                                contador_reenvio=0;//No hace falta pero lo pongo por las dudas
                                 return 1;
                             }
                         }break;
@@ -783,13 +788,40 @@ unsigned char configurarAntena(){
                                 myWriteUart(UART_ANTENA, MENSAJE_MODO_ERRORES, strlen(MENSAJE_MODO_ERRORES));
                                 ESP_LOGI("Configurando", "Esperando done1 desde done3"); 
                                 configuracion=esperando_Done1;
+                                contador_reenvio=0;
                             }
                         }
                     }
                 }
-            estado=buscando;
+            
             }
+            estado=buscando;
         }break;
+    }
+
+    //Me fijo si tengo que reintetnar el envio de algun mensaje
+    /*
+typedef enum : uint8_t {
+    esperando_Model = 0x01,
+    esperando_Copy    = 0x02,
+    esperando_Done1 =0x03,
+    esperando_Done2 =0x04,
+    esperando_DoneCRC=0x05,
+    esperando_Done3=0x06    //Aca espero la confirmacion de que entre en modo reader
+    
+} state_antena;
+*/
+    contador_reenvio++;
+    if(contador_reenvio>300){//Espero 300*tiempo de espera de la UART(=10ms)
+        contador_reenvio=0;
+        switch(configuracion){
+            case esperando_Done3:{
+                myWriteUart(UART_ANTENA, MENSAJE_MODO_ERRORES, strlen(MENSAJE_MODO_ERRORES));
+                ESP_LOGI("Configurando", "Vencio el timeout, reenvie mensaje"); 
+
+            }break;
+        }
+
     }
 
     return 0;
